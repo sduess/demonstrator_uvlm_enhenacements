@@ -6,7 +6,7 @@ import sharpy.utils.algebra as algebra
 import pandas as pd
 import matplotlib.pyplot as plt
 
-case_name = 'flex_op_wake_test_AoA0'
+case_name = 'flex_op_static_trim'
 print(case_name)
 route = os.path.dirname(os.path.realpath(__file__)) + '/'
 
@@ -15,26 +15,24 @@ route = os.path.dirname(os.path.realpath(__file__)) + '/'
 flow = ['BeamLoader',
         'AerogridLoader',
         'NonliftingbodygridLoader',
-        # 'NonLinearStatic',
-        'StaticUvlm',
-        'StaticCoupled',
+        # 'StaticUvlm',
+        # 'StaticCoupled',
+        'StaticTrim',
         'BeamLoads',
         'AeroForcesCalculator',
         'LiftDistribution',
-        # 'StaticTrim',
-        # 'BeamLoads',
         'AerogridPlot',
         # 'LiftDistribution',
         # 'BeamPlot',
         # 'AeroForcesCalculator',
-        'DynamicCoupled',
+        # 'DynamicCoupled',
         # 'Modal',
         # 'LinearAssember',
         # 'AsymptoticStability',
         ]
 
 # if free_flight is False, the motion of the centre of the wing is prescribed.
-free_flight = False #True
+free_flight = True
 if not free_flight:
     # case_name += '_prescribed'
     amplitude = 0*np.pi/180
@@ -95,14 +93,14 @@ tail_sweep_quarter_chord = np.arctan((tail_x_tip+tail_chord_tip/4-tail_chord_roo
 offset_wing_nose = 0.8842 + 0.09#0.8822765386648912
 
 
-alpha = 0 # 2.8*np.pi/180
+alpha = 2.8*np.pi/180
 beta = 0
 roll = 0
-gravity = 'off' #'on'
-cs_deflection =  0#-2.08*np.pi/180
+gravity = 'on'
+cs_deflection =  -2.08*np.pi/180
 rudder_static_deflection = np.deg2rad(0.0)
 rudder_step = 0.0*np.pi/180
-thrust = 0#6.1 #300
+thrust = 6.1 #max thrust 300
 sigma = 1.
 lambda_dihedral = 0*np.pi/180
 
@@ -166,9 +164,10 @@ j_bar_tail = 0.08
 n_lumped_mass = 1
 lumped_mass_nodes = np.zeros((n_lumped_mass, ), dtype=int)
 lumped_mass = np.zeros((n_lumped_mass, ))
-lumped_mass[0] = 0 #65
+lumped_mass[0] = 65
 lumped_mass_inertia = np.zeros((n_lumped_mass, 3, 3))
 lumped_mass_position = np.zeros((n_lumped_mass, 3))
+x_lumped_mass = 0.606 - offset_wing_nose
 # lumped_mass_position[0,0] = -0.2
 # lumped_mass_position[0,1] = -0.01
 # lumped_mass_position[0,2] = -0.025
@@ -517,6 +516,12 @@ def generate_fem():
         for inode in range(n_node_elem):
             frame_of_reference_delta[we + ielem, inode, :] = [0.0, 1.0, 0.0]
     
+    # setup lumped mass position
+    wn_lumped_mass = wn + find_index_of_closest_entry(x[wn:wn + n_node_fuselage-1], x_lumped_mass)
+    lumped_mass_nodes[0] = wn_lumped_mass
+    lumped_mass_position[0, 0] = x[wn_lumped_mass]
+    lumped_mass_position[0, 1] = y[wn_lumped_mass]
+    lumped_mass_position[0, 2] = z[wn_lumped_mass]
 
     # x[wn:wn + n_node_fuselage - 1] = np.linspace(0.0, length_fuselage, n_node_fuselage)[1:] 
     # z[wn:wn + n_node_fuselage - 1] = np.linspace(0.0, offset_fuselage, n_node_fuselage)[1:]
@@ -594,10 +599,7 @@ def generate_fem():
     wn += n_node_tail - 1
 
 
-    wn_lumped_mass = 0
-    lumped_mass_position[0, 0] = x[wn_lumped_mass]
-    lumped_mass_position[0, 1] = y[wn_lumped_mass]
-    lumped_mass_position[0, 2] = z[wn_lumped_mass]
+
     with h5.File(route + '/' + case_name + '.fem.h5', 'a') as h5file:
         coordinates = h5file.create_dataset('coordinates', data=np.column_stack((x, y, z)))
         conectivities = h5file.create_dataset('connectivities', data=conn)
@@ -650,49 +652,45 @@ def generate_aero_file():
 
     # aileron 1
     control_surface_type[0] = 0
-    control_surface_deflection[0] = np.deg2rad(-30) #cs_deflection
+    control_surface_deflection[0] = 0
     control_surface_chord[0] = m/4 # 0.25
     control_surface_hinge_coord[0] = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
 
     # aileron 2
     control_surface_type[1] = 0
-    control_surface_deflection[1] =  np.deg2rad(30) #cs_deflection + np.deg2rad(-30)
+    control_surface_deflection[1] = 0
     control_surface_chord[1] = m/4 # 0.25
     control_surface_hinge_coord[1] = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
 
     # aileron 3
     control_surface_type[2] = 0
-    control_surface_deflection[2] =  np.deg2rad(-60) #cs_deflection + np.deg2rad(+10)
+    control_surface_deflection[2] =  0
     control_surface_chord[2] = m/4 # 0.25
     control_surface_hinge_coord[2] = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
     
     # aileron 4
     control_surface_type[3] = 0
-    control_surface_deflection[3] =  np.deg2rad(60) #cs_deflection + np.deg2rad(-30)
+    control_surface_deflection[3] =  0
     control_surface_chord[3] = m/4 # 0.25
     control_surface_hinge_coord[3] = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
-    # rudder 1
+    # TODO: Setup right elevator chord length
+    # rudder 1 - used for trim
     control_surface_type[4]  = 0
-    control_surface_deflection[4]  =  np.deg2rad(90)
-    control_surface_chord[4]  =  chord_ratio_elevator #m/4 # 0.25
+    control_surface_deflection[4]  = np.deg2rad(cs_deflection)
+    control_surface_chord[4]  =  m/4 # Flexop@s elevator cs have a ,chord of 36%. problems with aerogrid discretization
     control_surface_hinge_coord[4]  = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
     # rudder 2
     control_surface_type[5]  = 0
-    control_surface_deflection[5]  = np.deg2rad(-90)
-    control_surface_chord[5]  =  chord_ratio_elevator #m/4 # 0.25
+    control_surface_deflection[5]  = 0
+    control_surface_chord[5]  = m/4  # Flexop@s elevator cs have a ,chord of 36%. problems with aerogrid discretization
     control_surface_hinge_coord[5]  = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
 
-    for i in range(6):
-        control_surface_deflection[i] = 0.
+
+    # # For Testing purposes: visualization of control surfaces in Paraview
+    # list_cs_deflections = [-30, 30, -60, 60, -90, 90]
+    # for i in range(len(list_cs_deflections)):
+    #     control_surface_deflection[i] = np.deg2rad(list_cs_deflections[i])
     
-
-    control_surface_deflection[4]  = np.deg2rad(cs_deflection)
-
-    #
-    # control_surface_type[1] = 0
-    # control_surface_deflection[1] = rudder_static_deflection
-    # control_surface_chord[1] = 1
-    # control_surface_hinge_coord[1] = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
 
     we = 0
     wn = 0
@@ -1218,6 +1216,11 @@ def generate_solver_file():
                               'initial_deflection': cs_deflection,
                               'initial_thrust': thrust,
                               'tail_cs_index': 4,
+                              'fz_tolerance': 0.01,
+                              'fy_tolerance': 0.01,
+                              'm_tolerance': 0.01,
+                              'initial_angle_eps': 0.05,
+                              'initial_thrust_eps': 2.,
                               'save_info': True}
 
     settings['NonLinearDynamicCoupledStep'] = {'print_info': 'off',
