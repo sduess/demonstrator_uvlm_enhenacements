@@ -175,7 +175,7 @@ j_bar_tail = 0.08
 n_lumped_mass = 1
 lumped_mass_nodes = np.zeros((n_lumped_mass, ), dtype=int)
 lumped_mass = np.zeros((n_lumped_mass, ))
-lumped_mass[0] = 65
+lumped_mass[0] = 10 # mass_take_off
 lumped_mass_inertia = np.zeros((n_lumped_mass, 3, 3))
 lumped_mass_position = np.zeros((n_lumped_mass, 3))
 x_lumped_mass = 0.606 - offset_wing_nose
