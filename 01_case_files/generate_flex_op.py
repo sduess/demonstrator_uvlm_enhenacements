@@ -138,13 +138,23 @@ structural_properties['Goland'] = {
     'j_tors': 8.64,
 }
 
-ea = 1e4 #structural_properties['Goland']['ea'] # 1e7
-ga = 1e4 #structural_properties['Goland']['ga'] # 1e5
-gj = 1e4 #structural_properties['Goland']['gj'] # 1e4
-eiy = 1e4 #structural_properties['Goland']['eiy'] #  2e4
-eiz = 1e4 #tructural_properties['Goland']['eiz'] #  4e6
-m_bar_main = structural_properties['Goland']['m_unit'] #  0.75
-j_bar_main = structural_properties['Goland']['j_tors'] #  0.075
+# TODO: Structural properties just first guess based on Jurij's paper
+#       https://arc.aiaa.org/doi/10.2514/6.2018-2153
+ea = 1e4
+ga = 1e4
+gj = 1e4
+eiy = 1e4
+eiz = 1e4 
+m_bar_main = 0.75 # from HALE
+j_bar_main = 0.075 # from HALE
+# ea = structural_properties['Goland']['ea'] # 1e7
+# ga = structural_properties['Goland']['ga'] # 1e5
+# gj = structural_properties['Goland']['gj'] # 1e4
+# eiy = structural_properties['Goland']['eiy'] #  2e4
+# eiz = structural_properties['Goland']['eiz'] #  4e6
+# m_bar_main = structural_properties['Goland']['m_unit'] #  0.75
+# j_bar_main = structural_properties['Goland']['j_tors'] #  0.075
+
 
 # length_fuselage = 10
 offset_fuselage = 0
