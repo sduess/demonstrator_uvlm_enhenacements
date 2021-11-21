@@ -9,3 +9,7 @@
 
 01_case_files/output/
 02_data_visualization/output/
+
+02_data_visualization/.ipynb_checkpoints/
+
+*.sharpy
