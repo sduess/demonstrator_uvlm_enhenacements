@@ -1,0 +1,11 @@
+
+*.pyc
+
+*.vtu
+
+*.h5
+
+*.log
+
+01_case_files/output/
+02_data_visualization/output/
