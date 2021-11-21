@@ -6,8 +6,30 @@ import sharpy.utils.algebra as algebra
 import pandas as pd
 import matplotlib.pyplot as plt
 
-case_name = 'flex_op_static_trim'
-print(case_name)
+wake_discretisation = False
+lifting_only = True
+structural_properties_fuselage = True
+wing_only = True
+if wing_only:
+    lifting_only = True
+horseshoe = False
+# case_name = 'wake_discretization'
+# case_name = 'test_elevator_deflection'
+# case_name = "tailored_wing_only"
+case_name = "dynamic_reference_wing_only"
+# case_name = "convergence_wing_only"
+# case_name = 'test_mass_flex_op_structure'
+if wake_discretisation:
+    case_name += '_discretised'
+if lifting_only:
+    case_name += '_lifting'
+if horseshoe:
+    case_name += '_horseshoe_mult_8m16'
+else:
+    case_name += '_mult_8m16_wake20'
+
+nonlifting_body_interactions = not lifting_only
+
 route = os.path.dirname(os.path.realpath(__file__)) + '/'
 
 
@@ -15,25 +37,29 @@ route = os.path.dirname(os.path.realpath(__file__)) + '/'
 flow = ['BeamLoader',
         'AerogridLoader',
         'NonliftingbodygridLoader',
-        # 'StaticUvlm',
+        'StaticUvlm',
+        # 'AeroForcesCalculator',
+        # 'AerogridPlot',
         'StaticCoupled',
-        'AeroForcesCalculator',
-        'StaticTrim',
+        # 'StaticTrim',
         'BeamLoads',
         'AeroForcesCalculator',
         'LiftDistribution',
         'AerogridPlot',
-        # 'LiftDistribution',
-        # 'BeamPlot',
+        'BeamPlot',
         # 'AeroForcesCalculator',
-        # 'DynamicCoupled',
-        # 'Modal',
+        'DynamicCoupled',
+        'Modal',
         # 'LinearAssember',
         # 'AsymptoticStability',
+        'SaveData',
         ]
+if wing_only:
+    # drop nonliftingbodygridloader
+    flow.remove("NonliftingbodygridLoader")
 
 # if free_flight is False, the motion of the centre of the wing is prescribed.
-free_flight = True
+free_flight = False # True
 if not free_flight:
     # case_name += '_prescribed'
     amplitude = 0*np.pi/180
@@ -46,7 +72,7 @@ if not free_flight:
 u_inf = 40
 rho = 1.225
 
-wake_length =  3
+wake_length = 40
 
 ### Wing
 # known inputs
@@ -94,22 +120,23 @@ tail_sweep_quarter_chord = np.arctan((tail_x_tip+tail_chord_tip/4-tail_chord_roo
 offset_wing_nose = 0.8842 + 0.09#0.8822765386648912
 
 
-alpha = 2.8*np.pi/180
+alpha = np.deg2rad(0.233113173076765) # 0.09495 #1.2209*np.pi/180
 beta = 0
 roll = 0
-gravity = 'on'
-cs_deflection =  -2.08*np.pi/180
+gravity =  True #free_flight
+cs_deflection =  0 #np.deg2rad(90.) # -16.1955*np.pi/180m
 rudder_static_deflection = np.deg2rad(0.0)
 rudder_step = 0.0*np.pi/180
-thrust = 6.1 #max thrust 300
+thrust =  2.3180 #70. #6.1 #max thrust 300
 sigma = 1.
 lambda_dihedral = 0*np.pi/180
 
 # gust settings
-gust_intensity = 0.80
-gust_length = 1*u_inf
+gust_intensity = 0.20
+gust_length = 20 #1*u_inf
 gust_offset = 0.0*u_inf
 
+case_name += "_gust_i%i_l%i" %(int(gust_intensity*100), int(gust_length))
 
 # numerics
 n_step = 5
@@ -118,7 +145,7 @@ relaxation_factor = 0.35
 tolerance = 1e-6
 fsi_tolerance = 1e-4
 
-num_cores = 20
+num_cores = 8
 
 # MODEL GEOMETRY
 # beam
@@ -136,17 +163,69 @@ structural_properties['Goland'] = {
     'sigma': 1.,
     'm_unit': 35.71,
     'j_tors': 8.64,
-}
+    }
+structural_properties['Hale'] = {
+    'ea': 1e7,
+    'ga': 1e5,
+    'gj': 1e4,
+    'eiy': 2e4,
+    'eiz': 4e6,
+    'sigma': 1.,
+    'm_unit': 0.75,
+    'j_tors': 0.075,
+    }
+
+# Read structural properties
+list_spanwise_stiffness_properties = []
+list_spanwise_mass_properties = []
+list_spanwise_shear_center = []
+df_spanwise_structural_properties = pd.read_csv('../01_case_files/flexOp_data/tudelf_bending_and_torsional_stiffness_values.csv',
+                                                skiprows=1,
+                                                sep=';')
+n_stiffness_wing = df_spanwise_structural_properties.shape[0]
+
+print("structural df = ", df_spanwise_structural_properties.head())
+material = "reference"
+# material = "tailored"
+if material == "reference":
+    column = 1
+else:
+    # tailored
+    column = 2
+print("n stiffness wing = ", n_stiffness_wing)
+list_spanwise_position = df_spanwise_structural_properties.iloc[:,0].to_list()
+for i_material in range(n_stiffness_wing):
+    eiy = float(df_spanwise_structural_properties.iloc[i_material,column])
+    gj = float(df_spanwise_structural_properties.iloc[i_material,column+2])   
+    ea = eiy*100.
+    ga = gj*100.    
+    eiz = eiy # TODO: play around with this value
+    sigma = 1.
+    m_bar_main = 0.5 #- (i_material*0.01)
+    j_bar_main = 10 #0.5 #075
+    shear_center = float(df_spanwise_structural_properties.iloc[i_material,column+6])
+    list_spanwise_shear_center.append(shear_center)
+    # print("ea = ", ea, "\nga = ", ga, "\ngj = ",  gj, "\neiy = ", eiy,"\neiz = ",  eiz)
+    stiffness_matrix = sigma*np.diag([ea, ga, ga, gj, eiy, eiz])
+    if not material == "reference":
+        bend_twist_coupling =float(df_spanwise_structural_properties.iloc[i_material,column + 4])
+        stiffness_matrix[3, 4] = bend_twist_coupling
+        stiffness_matrix[4, 3] = bend_twist_coupling
+    list_spanwise_stiffness_properties.append(stiffness_matrix)
+    # print("stiffness matrix = \n", stiffness_matrix)
+    list_spanwise_mass_properties.append(np.diag([m_bar_main, m_bar_main, m_bar_main, 
+                                                        j_bar_main, 0.5*j_bar_main, 0.5*j_bar_main]))                             
+    # list_spanwise_structural_properties.append(structural_properties["wing_" + str(i_material)])
 
 # TODO: Structural properties just first guess based on Jurij's paper
 #       https://arc.aiaa.org/doi/10.2514/6.2018-2153
-ea = 1e4
-ga = 1e4
-gj = 1e4
-eiy = 1e4
-eiz = 1e4 
-m_bar_main = 0.75 # from HALE
-j_bar_main = 0.075 # from HALE
+# ea = 1e4
+# ga = 1e4
+# gj = 1e4
+# eiy = 1e4
+# eiz = 1e4 
+# m_bar_main = 1 # assume 
+# j_bar_main = 0.075 # from HALE
 # ea = structural_properties['Goland']['ea'] # 1e7
 # ga = structural_properties['Goland']['ga'] # 1e5
 # gj = structural_properties['Goland']['gj'] # 1e4
@@ -159,7 +238,7 @@ j_bar_main = 0.075 # from HALE
 # length_fuselage = 10
 offset_fuselage = 0
 sigma_fuselage = 100
-m_bar_fuselage = 0.2
+m_bar_fuselage = m_bar_main*1.5
 j_bar_fuselage = 0.08
 
 span_tail = 2.5
@@ -175,7 +254,7 @@ j_bar_tail = 0.08
 n_lumped_mass = 1
 lumped_mass_nodes = np.zeros((n_lumped_mass, ), dtype=int)
 lumped_mass = np.zeros((n_lumped_mass, ))
-lumped_mass[0] = 10 # mass_take_off
+lumped_mass[0] = 0 # mass_take_off
 lumped_mass_inertia = np.zeros((n_lumped_mass, 3, 3))
 lumped_mass_position = np.zeros((n_lumped_mass, 3))
 x_lumped_mass = 0.606 - offset_wing_nose
@@ -189,21 +268,25 @@ x_lumped_mass = 0.606 - offset_wing_nose
 # DISCRETISATION
 # spatial discretisation
 # chordiwse panels
-n_elem_multiplier = 1
-m = int(4*n_elem_multiplier)
-m_radial_fuselage = 12 #36
+n_elem_multiplier = 8
+m = 16 #32 #_elem_multiplier)
+m_radial_fuselage = 36
 # spanwise elements
 n_ailerons_per_wing = 4
 n_elev_per_tail_surf = 2
-n_elem_junction_main = int(1*n_elem_multiplier)
+n_elem_junction_main = int(0.5*n_elem_multiplier)
+if n_elem_junction_main < 1:
+    n_elem_junction_main = 1
 n_elem_root_main = int(1*n_elem_multiplier)
-n_elem_tip_main = int(1*n_elem_multiplier)
+n_elem_tip_main = int(0.5*n_elem_multiplier)
+if n_elem_tip_main < 1:
+    n_elem_tip_main = 1
 n_elem_per_aileron = int(4*n_elem_multiplier)
 n_elem_per_elevator =  int(3*n_elem_multiplier)
 n_elem_junction_tail = int(2*n_elem_multiplier)
 n_elem_main = int(n_elem_junction_main + n_elem_root_main + n_ailerons_per_wing * n_elem_per_aileron + n_elem_tip_main)
 n_elem_tail = int(n_elem_junction_tail + n_elev_per_tail_surf * n_elem_per_elevator)
-n_elem_fuselage = int(8*n_elem_multiplier)
+n_elem_fuselage = 21 #int(8*2*n_elem_multiplier)
 n_surfaces = 4
 n_nonlifting_bodies = 1
 
@@ -211,8 +294,9 @@ n_nonlifting_bodies = 1
 # temporal discretisation
 physical_time = 30
 tstep_factor = 1.
-dt = 1.0/m/u_inf*tstep_factor
-n_tstep = round(physical_time/dt)
+# dt = 1.0/m/u_inf*tstep_factor
+dt = 1.*chord_root/m/u_inf
+n_tstep = 3000 # round(physical_time/dt)
 
 
 # control_surface_input
@@ -244,8 +328,9 @@ n_elem_main2 = n_elem_main - n_elem_main1
 # total number of elements
 n_elem = 0
 n_elem += n_elem_main1 + n_elem_main1
-n_elem += n_elem_fuselage
-n_elem += n_elem_tail + n_elem_tail
+if not wing_only:
+    n_elem += n_elem_fuselage
+    n_elem += n_elem_tail + n_elem_tail
 
 # number of nodes per part
 n_node_main1 = n_elem_main1*(n_node_elem - 1) + 1
@@ -258,34 +343,40 @@ n_node_fuselage = (n_elem_fuselage+1)*(n_node_elem - 1) -1
 n_node = 0
 n_node += n_node_main1
 n_node += n_node_main1 - 1
-n_node += n_node_fuselage - 1
-n_node += n_node_tail - 1
-n_node += n_node_tail - 1
+if not wing_only:
+    n_node += n_node_fuselage - 1
+    n_node += n_node_tail - 1
+    n_node += n_node_tail - 1
 
 
 
 # stiffness and mass matrices
-n_stiffness = 3
-base_stiffness_main = sigma*np.diag([ea, ga, ga, gj, eiy, eiz])
-base_stiffness_fuselage = base_stiffness_main.copy()*sigma_fuselage
-base_stiffness_fuselage[4, 4] = base_stiffness_fuselage[5, 5]
-base_stiffness_tail = base_stiffness_main.copy()*sigma_tail
-base_stiffness_tail[4, 4] = base_stiffness_tail[5, 5]
+n_stiffness =  n_stiffness_wing
+base_stiffness_main =list_spanwise_stiffness_properties[0] # sigma*np.diag([ea, ga, ga, gj, eiy, eiz])
 
-n_mass = 3
-base_mass_main = np.diag([m_bar_main, m_bar_main, m_bar_main, j_bar_main, 0.5*j_bar_main, 0.5*j_bar_main])
-base_mass_fuselage = np.diag([m_bar_fuselage,
-                              m_bar_fuselage,
-                              m_bar_fuselage,
-                              j_bar_fuselage,
-                              j_bar_fuselage*0.5,
-                              j_bar_fuselage*0.5])
-base_mass_tail = np.diag([m_bar_tail,
-                          m_bar_tail,
-                          m_bar_tail,
-                          j_bar_tail,
-                          j_bar_tail*0.5,
-                          j_bar_tail*0.5])
+
+if not wing_only:
+    n_stiffness += 2
+    base_stiffness_fuselage = base_stiffness_main.copy()*sigma_fuselage
+    base_stiffness_fuselage[4, 4] = base_stiffness_fuselage[5, 5]
+    base_stiffness_tail = base_stiffness_main.copy()*sigma_tail
+    base_stiffness_tail[4, 4] = base_stiffness_tail[5, 5]
+
+n_mass = n_stiffness
+base_mass_main = list_spanwise_mass_properties[0]#np.diag([m_bar_main, m_bar_main, m_bar_main, j_bar_main, 0.5*j_bar_main, 0.5*j_bar_main])
+if not wing_only:
+    base_mass_fuselage = np.diag([m_bar_fuselage,
+                                m_bar_fuselage,
+                                m_bar_fuselage,
+                                j_bar_fuselage,
+                                j_bar_fuselage*0.5,
+                                j_bar_fuselage*0.5])
+    base_mass_tail = np.diag([m_bar_tail,
+                            m_bar_tail,
+                            m_bar_tail,
+                            j_bar_tail,
+                            j_bar_tail*0.5,
+                            j_bar_tail*0.5])
 
 
 # PLACEHOLDERS
@@ -332,31 +423,64 @@ junction_boundary_condition_aero = np.zeros((1, n_surfaces), dtype=int) - 1
 
 
 # FUNCTIONS-------------------------------------------------------------
-def clean_test_files():
-    fem_file_name = route + '/' + case_name + '.fem.h5'
-    if os.path.isfile(fem_file_name):
-        os.remove(fem_file_name)
+def clean_test_files(route, case_name, list_files):
+    # list_files = ['.fem.h5', '.aero.h5', '.nonlifting_body.h5', '.sharpy']
+    for file in list_files:
+        path_file= route + '/' + case_name + file
+        if os.path.isfile(path_file):
+            os.remove(path_file)
 
-    dyn_file_name = route + '/' + case_name + '.dyn.h5'
-    if os.path.isfile(dyn_file_name):
-        os.remove(dyn_file_name)
+def load_airfoil_data_from_file(file):
+    #file = "../01_case_files/FlexOp_Data_Jurij/camber_line_airfoils.csv"
+    camber_line = pd.read_csv(file, sep = ";")
+    print(camber_line)
+    return np.array(camber_line.iloc[:,0]), np.array(camber_line.iloc[:,1])
 
-    aero_file_name = route + '/' + case_name + '.aero.h5'
-    if os.path.isfile(aero_file_name):
-        os.remove(aero_file_name)
+def load_stiffness_and_mass_matrix_from_matlab_file():
+    import matlab.engine
+    eng = matlab.engine.start_matlab()
+    # Load data from file
+    if material == "reference":
+        file = '../01_case_files/FlexOp_Data_Jurij/dynamics_reference.mat'
+    else:
+        file = '../01_case_files/FlexOp_Data_Jurij/dynamics_tailored.mat'
 
-    aero_file_name = route + '/' + case_name + '.nonlifting_body.h5'
-    if os.path.isfile(aero_file_name):
-        os.remove(aero_file_name)
+    D = eng.load(file)
+    matrices_cross_stiffness = np.array(D['dynamics'][0]['str']['elm']['C'])
+    matrices_cross_mass = np.array(D['dynamics'][0]['str']['elm']['A'])
+    matrices_cross_moment_of_inertia = np.array(D['dynamics'][0]['str']['elm']['I'])
 
-    solver_file_name = route + '/' + case_name + '.sharpy'
-    if os.path.isfile(solver_file_name):
-        os.remove(solver_file_name)
+    nodal_coordinates =np.array(D['dynamics'][0]['str']['xyz'])
+    N_nodes = int(np.array(D['dynamics'][0]['str']['Nnode']))
 
-    flightcon_file_name = route + '/' + case_name + '.flightcon.txt'
-    if os.path.isfile(flightcon_file_name):
-        os.remove(flightcon_file_name)
+    # Transform data
+    coords = np.zeros((N_nodes, 3))
+    counter = 0
+    for irow in range(N_nodes):
+        # skip first row
+        coords[irow, :] = np.transpose(nodal_coordinates[counter:counter+3])
+        counter += 3
 
+    list_stiffness_matrix = []
+    list_mass_matrix = []
+
+    counter = 0
+    inertia_counter = 0
+    row_counter = 0
+    while counter < matrices_cross_stiffness.shape[0]:
+        list_stiffness_matrix.append(np.array(matrices_cross_stiffness[counter:counter+6, :]))
+        mass_matrix = np.zeros((6,6))
+        # mass distribution
+        mass = float(matrices_cross_mass[row_counter])
+        for i in range(3):
+            mass_matrix[i,i] = mass
+        mass_matrix[3:,3:] = matrices_cross_moment_of_inertia[inertia_counter:inertia_counter+3,:3]
+        list_mass_matrix.append(mass_matrix)
+        # TODO More elegant solution
+        counter += 6
+        inertia_counter += 3
+        row_counter += 1
+    return list_stiffness_matrix, list_mass_matrix, coords[1:,1]
 
 def find_index_of_closest_entry(array_values, target_value):
     return (np.abs(array_values - target_value)).argmin()
@@ -418,14 +542,22 @@ def generate_dyn_file():
                 'num_steps', data=n_tstep)
 
 def generate_fem():
-    stiffness[0, ...] = base_stiffness_main
-    stiffness[1, ...] = base_stiffness_fuselage
-    stiffness[2, ...] = base_stiffness_tail
+    list_stiffness_matrix, list_mass_matrix, y_cross_sections = load_stiffness_and_mass_matrix_from_matlab_file()
+    for i in  range( n_stiffness_wing):
+        stiffness[i, ...] = list_stiffness_matrix[i] #list_spanwise_stiffness_properties[i]
+        mass[i, ...] =  list_mass_matrix[i] #list_spanwise_mass_properties[i]
+    if not wing_only:
+        # base_stiffness_fuselage = list_stiffness_matrix[0]*sigma_fuselage
+        # base_stiffness_fuselage[4, 4] = base_stiffness_fuselage[5, 5]
 
-    mass[0, ...] = base_mass_main
-    mass[1, ...] = base_mass_fuselage
-    mass[2, ...] = base_mass_tail
+        # base_stiffness_tail = list_stiffness_matrix[0]*sigma_tail
+        # base_stiffness_tail[4, 4] = base_stiffness_tail[5, 5]
+        stiffness[-2, ...] = base_stiffness_fuselage
+        stiffness[-1, ...] = base_stiffness_tail
 
+        mass[-2, ...] = base_mass_fuselage
+        mass[-1, ...] = base_mass_tail
+    y_elem_end = np.zeros((2*n_elem_main1))
     we = 0
     wn = 0
     # inner right wing
@@ -454,17 +586,43 @@ def generate_fem():
     y[wn_end:wn_end + n_node_tip-1] = np.linspace(y_coord_ailerons[-1], half_wing_span, n_node_tip)[1:]
     
     # y[wn:wn + n_node_main1] = np.linspace(0.0, half_wing_span, n_node_main1)
-    # TODO: Check if wingspan (tip coordinate) is still correct?
+    # TODO: Check if wingspan (tip coordinate) is still correct?  
     x[wn+n_node_junctions:wn + n_node_main] += (abs(y[wn+n_node_junctions:wn + n_node_main])-y_coord_junction) * np.tan(sweep_quarter_chord)
-    for ielem in range(n_elem_main1):
-        conn[we + ielem, :] = ((np.ones((3, ))*(we + ielem)*(n_node_elem - 1)) +
-                               [0, 2, 1])
-        for inode in range(n_node_elem):
-            frame_of_reference_delta[we + ielem, inode, :] = [-1.0, 0.0, 0.0]
-
-    app_forces[wn] = [0, thrust, 0, 0, 0, 0]
+    
     elem_stiffness[we:we + n_elem_main1] = 0
     elem_mass[we:we + n_elem_main1] = 0
+    node_counter = wn
+    
+    if lifting_only and not structural_properties_fuselage:
+        aero_node[wn:wn + n_node_main] = True
+    else:
+        aero_node[wn:wn + n_node_main] = abs(y[wn:wn + n_node_main]) >= y_coord_junction   
+    for ielem in range(n_elem_main1):
+        conn[we + ielem, :] = ((np.ones((3, ))*(we + ielem)*(n_node_elem - 1)) +
+                               [0, 2, 1])          
+        # if all nodes of an element are aero_nodes, the element has aero material properties
+        index_position = df_spanwise_structural_properties[df_spanwise_structural_properties['y'] <= y[node_counter+ 2]].index
+        index_position= find_index_of_closest_entry(y_cross_sections,y[node_counter+ 2])
+        
+        if y_cross_sections[index_position] < y[node_counter+ 2]:
+            i_material = index_position + 1
+        else:
+            i_material = index_position
+        
+        print("i_material = ", i_material)
+        y_elem_end[we+ielem] = y[node_counter+ 2]
+        elem_stiffness[we + ielem] = i_material
+        elem_mass[we + ielem] = i_material
+        for inode in range(n_node_elem):
+            frame_of_reference_delta[we + ielem, inode, :] = [-1.0, 0.0, 0.0]  
+            # Elastic axis is later multiplied with chord in aero function
+            elastic_axis[ielem, inode] = (0.5 + list_spanwise_shear_center[i_material])
+        # if not bool(aero_node[node_counter]):
+        #     elem_stiffness[we + ielem] = 1 #fuselage properties
+        #     elem_mass[we + ielem] = 1
+        node_counter += 2
+
+    app_forces[wn] = [0, thrust, 0, 0, 0, 0]
     boundary_conditions[0] = 1
     # remember this is in B FoR
     we += n_elem_main1
@@ -477,140 +635,196 @@ def generate_fem():
     z[wn:wn + n_node_main1 - 1] = z[1:n_node_main1]
     # y[wn:wn + n_node_main1 - 1] = np.linspace(0.0, -half_wing_span, n_node_main1)[1:]
     # x[wn:wn + n_node_main1 - 1] += abs(y[wn:wn + n_node_main1 - 1]) * np.tan(sweep_quarter_chord)
-    for ielem in range(n_elem_main1):
-        conn[we + ielem, :] = ((np.ones((3, ))*(we+ielem)*(n_node_elem - 1)) +
-                               [0, 2, 1])
-        for inode in range(n_node_elem):
-            frame_of_reference_delta[we + ielem, inode, :] = [1.0, 0.0, 0.0]
-    conn[we, 0] = 0
+    node_counter = wn
     elem_stiffness[we:we + n_elem_main1] = 0
     elem_mass[we:we + n_elem_main1] = 0
 
+    if lifting_only and not structural_properties_fuselage:
+        aero_node[wn:wn + n_node_main] = True
+    else:
+        aero_node[wn:wn + n_node_main] = abs(y[wn:wn + n_node_main]) >= y_coord_junction  
+    for ielem in range(n_elem_main1):
+        conn[we + ielem, :] = ((np.ones((3, ))*(we+ielem)*(n_node_elem - 1)) +
+                               [0, 2, 1])
+        # index_position = df_spanwise_structural_properties[df_spanwise_structural_properties['y'] <= abs(y[node_counter+ 1])].index
+        # if len(index_position) == 0:
+        #     i_material = 0
+        # else:
+        #     i_material = index_position.to_list()[-1]
+        
+        y_elem_end[we+ielem] = y[node_counter]
+        # print(y[node_counter+ 2], i_material)
+        elem_stiffness[we + ielem] =elem_stiffness[ielem]
+        elem_mass[we + ielem] = i_material
+        for inode in range(n_node_elem):
+            frame_of_reference_delta[we + ielem, inode, :] = [1.0, 0.0, 0.0] 
+            # Elastic axis is later multiplied with chord in aero function
+            elastic_axis[we + ielem, inode] = elastic_axis[ielem, inode] #(0.5 + list_spanwise_shear_center[i_material])
+        # if all nodes of an element are aero_nodes, the element has aero material properties
+        # if not bool(aero_node[node_counter]):
+        #     print("Aero node = ", bool(aero_node[node_counter]))
+        #     elem_stiffness[we + ielem] = 1 #fuselage properties
+        #     elem_mass[we + ielem] = 1
+        node_counter += 2
+    conn[we, 0] = 0
+    boundary_conditions[wn-1] = -1
+    if wing_only:
+        boundary_conditions[-1] = -1
+    else:
+        boundary_conditions[wn + n_node_main-1] = -1
     print("wing left -= ", y[wn:wn + n_node_main1 - 1])
     we += n_elem_main1
     wn += n_node_main1 - 1
+    np.savetxt("elem_stiffness_and_y.csv", np.column_stack((y_elem_end, elem_stiffness[:2*n_elem_main])))
+    if not wing_only:
+
+        # fuselage
+        beam_number[we:we + n_elem_fuselage] = 2
+        x_fuselage = np.linspace(0.0, length_fuselage, n_node_fuselage) - offset_wing_nose
+        z_fuselage = np.linspace(0.0, offset_fuselage, n_node_fuselage)
+        idx_junction = find_index_of_closest_entry(x_fuselage, x[0])
+        x_fuselage = np.delete(x_fuselage, idx_junction)
+        z_fuselage = np.delete(z_fuselage, idx_junction)
+        x[wn:wn + n_node_fuselage-1] = x_fuselage 
+        z[wn:wn + n_node_fuselage-1] = z_fuselage
+        adjust = False
+
+        node_fuselage_conn = False
+        for ielem in range(n_elem_fuselage):
+            conn[we + ielem, :] = ((np.ones((3,))*(we + ielem)*(n_node_elem - 1)) +
+                                2 + [0, 2, 1]) - 1
+            if adjust:
+                conn[we + ielem, :] -= 1
+            else:
+                if node_fuselage_conn:
+                    conn[we + ielem, 0] = 0
+                elif (conn[we + ielem, :] ==  wn+idx_junction).any():
+                    adjust_elem = False
+                    for idx_node in [0, 2, 1]:               
+                        if adjust_elem:
+                            conn[we + ielem, idx_node] -= 1  
+
+                        elif conn[we + ielem, idx_node] ==  wn+idx_junction:
+                            adjust = True
+                            adjust_elem = True
+                            conn[we + ielem, idx_node] = 0
+                            if idx_node == 1:
+                                node_fuselage_conn = True
+            for inode in range(n_node_elem):
+                frame_of_reference_delta[we + ielem, inode, :] = [0.0, 1.0, 0.0]
+
+        
+        # setup lumped mass position
+        wn_lumped_mass = wn + find_index_of_closest_entry(x[wn:wn + n_node_fuselage-1], x_lumped_mass)
+        lumped_mass_nodes[0] = wn_lumped_mass
+        lumped_mass_position[0, 0] = x[wn_lumped_mass]
+        lumped_mass_position[0, 1] = y[wn_lumped_mass]
+        lumped_mass_position[0, 2] = z[wn_lumped_mass]
+        boundary_conditions[wn] = - 1
+        print("lumped mass: \n - position = " , lumped_mass_position[0,:], "\n- wn_lumped_mass = ", wn_lumped_mass)
+    
+        # for ielem in range(n_elem_fuselage):
+        #     conn[we + ielem, :] = ((np.ones((3,))*(we + ielem)*(n_node_elem - 1)) +
+        #                            [0, 2, 1])
+        #     for inode in range(n_node_elem):
+        #         frame_of_reference_delta[we + ielem, inode, :] = [0.0, 1.0, 0.0]
+        # # TODO: Update Connectivities
+        # conn[we, 0] = 0
+        
+
+        elem_stiffness[we:we + n_elem_fuselage] = n_stiffness - 2
+        elem_mass[we:we + n_elem_fuselage] = n_stiffness - 2
+        index_tail_start = wn + find_index_of_closest_entry(x[wn:wn + n_node_fuselage-1], offset_tail_nose-offset_wing_nose)
+        we += n_elem_fuselage
+        wn += n_node_fuselage - 1
+        global end_of_fuselage_node
+        end_of_fuselage_node = wn - 1
+        boundary_conditions[end_of_fuselage_node] = -1
+        boundary_conditions[index_tail_start] = 1
+
+        
 
 
 
-    # fuselage
-    beam_number[we:we + n_elem_fuselage] = 2
-    x_fuselage = np.linspace(0.0, length_fuselage, n_node_fuselage) - offset_wing_nose
-    z_fuselage = np.linspace(0.0, offset_fuselage, n_node_fuselage)
-    idx_junction = find_index_of_closest_entry(x_fuselage, x[0])
-    x_fuselage = np.delete(x_fuselage, idx_junction)
-    z_fuselage = np.delete(z_fuselage, idx_junction)
-    x[wn:wn + n_node_fuselage-1] = x_fuselage 
-    z[wn:wn + n_node_fuselage-1] = z_fuselage
-    adjust = False
+        # right tail
+        beam_number[we:we + n_elem_tail] = 3
+        x[wn:wn + n_node_tail - 1] = x[index_tail_start]
+        wn_right_tail_start = wn
+        n_node_junctions = int(3 + 2*(n_elem_junction_tail-1))
+        y[wn:wn + n_node_junctions - 1] = np.linspace(0.0, y_coord_elevators[0], n_node_junctions)[:-1]
+        # Approach 1: Direct transition from one aileron to another aileron
+        n_nodes_per_cs = (n_elem_per_elevator)*2+1
 
-    node_fuselage_conn = False
-    for ielem in range(n_elem_fuselage):
-        conn[we + ielem, :] = ((np.ones((3,))*(we + ielem)*(n_node_elem - 1)) +
-                               2 + [0, 2, 1]) - 1
-        if adjust:
-            conn[we + ielem, :] -= 1
+        for i_control_surface in range(n_elev_per_tail_surf):
+            wn_start = wn +  n_node_junctions - 1 + i_control_surface*(n_nodes_per_cs-1)
+            wn_end= wn_start + n_nodes_per_cs
+            y[wn_start:wn_end] = np.linspace(y_coord_elevators[i_control_surface], 
+                                            y_coord_elevators[i_control_surface+1], 
+                                            n_nodes_per_cs)
+        print("y tail right = ", y[wn:wn + n_node_tail - 1] )
+        
+        # y[wn:wn + n_node_tail - 1] = np.linspace(0.0, half_tail_span, n_node_tail)[1:]
+        x[wn:wn + n_node_tail - 1]  += abs(y[wn:wn + n_node_tail - 1])* np.tan(tail_sweep_quarter_chord)
+        z[wn:wn + n_node_tail - 1] = z[index_tail_start]
+        z[wn:wn + n_node_tail - 1] += y[wn:wn + n_node_tail - 1] * np.tan(v_tail_angle)
+
+
+        elem_stiffness[we:we + n_elem_tail] = n_stiffness - 1
+        elem_mass[we:we + n_elem_tail] = n_stiffness - 1
+        node_counter = wn
+        if lifting_only and not structural_properties_fuselage:
+            aero_node[wn:wn + n_node_tail] = True
         else:
-            if node_fuselage_conn:
-                conn[we + ielem, 0] = 0
-            elif (conn[we + ielem, :] ==  wn+idx_junction).any():
-                adjust_elem = False
-                for idx_node in [0, 2, 1]:               
-                    if adjust_elem:
-                        conn[we + ielem, idx_node] -= 1  
+            aero_node[wn:wn + n_node_tail] = y[wn:wn + n_node_tail] >= 0.04
+        for ielem in range(n_elem_tail):
+            conn[we + ielem, :] = ((np.ones((3, ))*(we + ielem)*(n_node_elem - 1)) +
+                                [0, 2, 1])
+            for inode in range(n_node_elem):
+                frame_of_reference_delta[we + ielem, inode, :] = [-1.0, 0.0, 0.0]        
+            if not bool(aero_node[node_counter]):
+                elem_stiffness[we + ielem] = n_stiffness - 2 #fuselage properties
+                elem_mass[we + ielem] =  n_stiffness - 2
+            node_counter += 2
+        conn[we, 0] =  index_tail_start 
+        boundary_conditions[wn + n_node_tail - 2] = -1
+        we += n_elem_tail
+        wn += n_node_tail - 1
 
-                    elif conn[we + ielem, idx_node] ==  wn+idx_junction:
-                        adjust = True
-                        adjust_elem = True
-                        conn[we + ielem, idx_node] = 0
-                        if idx_node == 1:
-                            node_fuselage_conn = True
-        for inode in range(n_node_elem):
-            frame_of_reference_delta[we + ielem, inode, :] = [0.0, 1.0, 0.0]
-    
-    # setup lumped mass position
-    wn_lumped_mass = wn + find_index_of_closest_entry(x[wn:wn + n_node_fuselage-1], x_lumped_mass)
-    lumped_mass_nodes[0] = wn_lumped_mass
-    lumped_mass_position[0, 0] = x[wn_lumped_mass]
-    lumped_mass_position[0, 1] = y[wn_lumped_mass]
-    lumped_mass_position[0, 2] = z[wn_lumped_mass]
-
-    # x[wn:wn + n_node_fuselage - 1] = np.linspace(0.0, length_fuselage, n_node_fuselage)[1:] 
-    # z[wn:wn + n_node_fuselage - 1] = np.linspace(0.0, offset_fuselage, n_node_fuselage)[1:]
-    # for ielem in range(n_elem_fuselage):
-    #     conn[we + ielem, :] = ((np.ones((3,))*(we + ielem)*(n_node_elem - 1)) +
-    #                            [0, 2, 1])
-    #     for inode in range(n_node_elem):
-    #         frame_of_reference_delta[we + ielem, inode, :] = [0.0, 1.0, 0.0]
-    # # TODO: Update Connectivities
-    # conn[we, 0] = 0
-    elem_stiffness[we:we + n_elem_fuselage] = 1
-    elem_mass[we:we + n_elem_fuselage] = 1
-    index_tail_start = wn + find_index_of_closest_entry(x[wn:wn + n_node_fuselage-1], offset_tail_nose-offset_wing_nose)
-    we += n_elem_fuselage
-    wn += n_node_fuselage - 1
-    global end_of_fuselage_node
-    end_of_fuselage_node = wn - 1
-
-    
+        # left tail
+        beam_number[we:we + n_elem_tail] = 4
+        x[wn:wn + n_node_tail - 1] = x[index_tail_start]
+        y[wn:wn + n_node_tail - 1] = -y[wn_right_tail_start:wn_right_tail_start + n_node_tail - 1]
+        print("y tail left + ", y[wn:wn + n_node_tail- 1])
+        # y[wn:wn + n_node_tail - 1] = np.linspace(0.0, -half_tail_span, n_node_tail)[1:]
+        x[wn:wn + n_node_tail - 1]  += abs(y[wn:wn + n_node_tail - 1])* np.tan(tail_sweep_quarter_chord)
+        z[wn:wn + n_node_tail - 1] = z[index_tail_start]
+        z[wn:wn + n_node_tail - 1] += abs(y[wn:wn + n_node_tail - 1]) * np.tan(v_tail_angle)
 
 
+        elem_stiffness[we:we + n_elem_tail] = n_stiffness - 1
+        elem_mass[we:we + n_elem_tail] = n_stiffness - 1
+        node_counter = wn
+        if lifting_only and not structural_properties_fuselage:
+            aero_node[wn:wn + n_node_tail] = True
+        else:
+            aero_node[wn:wn + n_node_tail] = y[wn:wn + n_node_tail] <= -0.04
+        for ielem in range(n_elem_tail):
+            conn[we + ielem, :] = ((np.ones((3, ))*(we + ielem)*(n_node_elem - 1)) +
+                                [0, 2, 1])
+            for inode in range(n_node_elem):
+                frame_of_reference_delta[we + ielem, inode, :] = [1.0, 0.0, 0.0]
+            if not bool(aero_node[node_counter]):
+                elem_stiffness[we + ielem] = n_stiffness - 2 #fuselage properties
+                elem_mass[we + ielem] = n_stiffness - 2
+            node_counter += 2
+        conn[we, 0] =  index_tail_start 
+        boundary_conditions[wn + n_node_tail - 2] = -1
+        we += n_elem_tail
+        wn += n_node_tail - 1
 
-    # right tail
-    beam_number[we:we + n_elem_tail] = 3
-    x[wn:wn + n_node_tail - 1] = x[index_tail_start]
-    wn_right_tail_start = wn
-    n_node_junctions = int(3 + 2*(n_elem_junction_tail-1))
-    y[wn:wn + n_node_junctions - 1] = np.linspace(0.0, y_coord_elevators[0], n_node_junctions)[:-1]
-    # Approach 1: Direct transition from one aileron to another aileron
-    n_nodes_per_cs = (n_elem_per_elevator)*2+1
-
-    for i_control_surface in range(n_elev_per_tail_surf):
-        wn_start = wn +  n_node_junctions - 1 + i_control_surface*(n_nodes_per_cs-1)
-        wn_end= wn_start + n_nodes_per_cs
-        y[wn_start:wn_end] = np.linspace(y_coord_elevators[i_control_surface], 
-                                         y_coord_elevators[i_control_surface+1], 
-                                         n_nodes_per_cs)
-    print("y tail right = ", y[wn:wn + n_node_tail - 1] )
-    
-    # y[wn:wn + n_node_tail - 1] = np.linspace(0.0, half_tail_span, n_node_tail)[1:]
-    x[wn:wn + n_node_tail - 1]  += abs(y[wn:wn + n_node_tail - 1])* np.tan(tail_sweep_quarter_chord)
-    z[wn:wn + n_node_tail - 1] = z[index_tail_start]
-    z[wn:wn + n_node_tail - 1] += y[wn:wn + n_node_tail - 1] * np.tan(v_tail_angle)
-    for ielem in range(n_elem_tail):
-        conn[we + ielem, :] = ((np.ones((3, ))*(we + ielem)*(n_node_elem - 1)) +
-                               [0, 2, 1])
-        for inode in range(n_node_elem):
-            frame_of_reference_delta[we + ielem, inode, :] = [-1.0, 0.0, 0.0]
-    conn[we, 0] =  index_tail_start 
-    elem_stiffness[we:we + n_elem_tail] = 2
-    elem_mass[we:we + n_elem_tail] = 2
-    boundary_conditions[wn + n_node_tail - 2] = -1
-    we += n_elem_tail
-    wn += n_node_tail - 1
-
-    # left tail
-    beam_number[we:we + n_elem_tail] = 4
-    x[wn:wn + n_node_tail - 1] = x[index_tail_start]
-    y[wn:wn + n_node_tail - 1] = -y[wn_right_tail_start:wn_right_tail_start + n_node_tail - 1]
-    print("y tail left + ", y[wn:wn + n_node_tail- 1])
-    # y[wn:wn + n_node_tail - 1] = np.linspace(0.0, -half_tail_span, n_node_tail)[1:]
-    x[wn:wn + n_node_tail - 1]  += abs(y[wn:wn + n_node_tail - 1])* np.tan(tail_sweep_quarter_chord)
-    z[wn:wn + n_node_tail - 1] = z[index_tail_start]
-    z[wn:wn + n_node_tail - 1] += abs(y[wn:wn + n_node_tail - 1]) * np.tan(v_tail_angle)
-    for ielem in range(n_elem_tail):
-        conn[we + ielem, :] = ((np.ones((3, ))*(we + ielem)*(n_node_elem - 1)) +
-                               [0, 2, 1])
-        for inode in range(n_node_elem):
-            frame_of_reference_delta[we + ielem, inode, :] = [1.0, 0.0, 0.0]
-    conn[we, 0] =  index_tail_start 
-    elem_stiffness[we:we + n_elem_tail] = 2
-    elem_mass[we:we + n_elem_tail] = 2
-    boundary_conditions[wn + n_node_tail - 2] = -1
-    we += n_elem_tail
-    wn += n_node_tail - 1
-
-
-
+    np.savetxt("elastic_axis_factor.csv", elastic_axis)
+    np.savetxt("elem_stiffness_spanwise.csv", elem_stiffness)
+    # np.savetxt("elem_connectivities.csv", conn)
     with h5.File(route + '/' + case_name + '.fem.h5', 'a') as h5file:
         coordinates = h5file.create_dataset('coordinates', data=np.column_stack((x, y, z)))
         conectivities = h5file.create_dataset('connectivities', data=conn)
@@ -647,11 +861,44 @@ def generate_fem():
         lumped_mass_position_handle = h5file.create_dataset(
             'lumped_mass_position', data=lumped_mass_position)
 
+def get_jigtwist_from_y_coord(y_coord):
+    y_coord = abs(y_coord)
+    # TODO: Find function for the interpolation (there must be one out there)
+    df_jig_twist = pd.read_csv('../01_case_files/FlexOp_Data_Jurij/jig_twist.csv',
+                               sep=';')
+    idx_closest_value = find_index_of_closest_entry(df_jig_twist.iloc[:,0], y_coord)
+    if material == "reference":
+        column = 1
+    else:
+        column = 2
+    if idx_closest_value == df_jig_twist.shape[0]:
+        idx_adjacent = idx_closest_value - 1 
+    elif idx_closest_value == 0 or df_jig_twist.iloc[idx_closest_value,0] < y_coord:
+        idx_adjacent = idx_closest_value + 1
+    else:
+        idx_adjacent = idx_closest_value - 1  
+    
+    
+    jig_twist_interp = df_jig_twist.iloc[idx_closest_value,column] + ((y_coord - df_jig_twist.iloc[idx_closest_value, 0]) 
+                                                / (df_jig_twist.iloc[idx_adjacent, 0] - df_jig_twist.iloc[idx_closest_value,0])
+                                                *(df_jig_twist.iloc[idx_adjacent, column] - df_jig_twist.iloc[idx_closest_value,column]))
+    # print("y = ", y_coord, ",  jig twist = ", jig_twist_interp)
+    # when the denominator of the interpolation is zero
+    if np.isnan(jig_twist_interp):
+        jig_twist_interp = df_jig_twist.iloc[idx_closest_value, 1]
+        # print("y = ", y_coord, ",  jig twist = ", jig_twist_interp)
+    return np.deg2rad(jig_twist_interp)
+    
+
+    print(df_jig_twist.head())
 def generate_aero_file():
     global x, y, z
     #
     # control surfaces
-    n_control_surfaces = numb_ailerons* 2 + numb_elevators * 2 # on each side
+    
+    n_control_surfaces = numb_ailerons * 2 
+    if not wing_only:
+        n_control_surfaces += numb_elevators * 2 # on each side
     control_surface = np.zeros((n_elem, n_node_elem), dtype=int) - 1
     control_surface_type = np.zeros((n_control_surfaces, ), dtype=int)
     control_surface_deflection = np.zeros((n_control_surfaces, ))
@@ -681,26 +928,28 @@ def generate_aero_file():
     
     # aileron 4
     control_surface_type[3] = 0
-    control_surface_deflection[3] =  0
+    control_surface_deflection[3] =  np.deg2rad(cs_deflection)
     control_surface_chord[3] = m/4 # 0.25
     control_surface_hinge_coord[3] = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
     # TODO: Setup right elevator chord length
-    # rudder 1 - used for trim
-    control_surface_type[4]  = 0
-    control_surface_deflection[4]  = np.deg2rad(cs_deflection)
-    control_surface_chord[4]  =  m/4 # Flexop@s elevator cs have a ,chord of 36%. problems with aerogrid discretization
-    control_surface_hinge_coord[4]  = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
-    # rudder 2
-    control_surface_type[5]  = 0
-    control_surface_deflection[5]  = 0
-    control_surface_chord[5]  = m/4  # Flexop@s elevator cs have a ,chord of 36%. problems with aerogrid discretization
-    control_surface_hinge_coord[5]  = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
-
+    if not wing_only:
+        # rudder 1 - used for trim
+        control_surface_type[4]  = 0
+        control_surface_deflection[4]  = np.deg2rad(cs_deflection)
+        control_surface_chord[4]  =  m/4 # Flexop@s elevator cs have a ,chord of 36%. problems with aerogrid discretization
+        control_surface_hinge_coord[4]  = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
+        # rudder 2
+        control_surface_type[5]  = 0
+        control_surface_deflection[5]  = 0
+        control_surface_chord[5]  = m/4  # Flexop@s elevator cs have a ,chord of 36%. problems with aerogrid discretization
+        control_surface_hinge_coord[5]  = -0. # nondimensional wrt elastic axis (+ towards the trailing edge)
+    print(control_surface_deflection)
 
     # # For Testing purposes: visualization of control surfaces in Paraview
     # list_cs_deflections = [-30, 30, -60, 60, -90, 90]
     # for i in range(len(list_cs_deflections)):
-    #     control_surface_deflection[i] = np.deg2rad(list_cs_deflections[i])
+    #     if i == 4:
+    #         control_surface_deflection[i] = np.deg2rad(list_cs_deflections[i])
     
 
     we = 0
@@ -710,7 +959,12 @@ def generate_aero_file():
     airfoil_distribution[we:we + n_elem_main, :] = 0
     surface_distribution[we:we + n_elem_main] = i_surf
     surface_m[i_surf] = m
-    aero_node[wn:wn + n_node_main] = y[wn:wn + n_node_main] >= y_coord_junction 
+
+    if lifting_only:
+        aero_node[wn:wn + n_node_main] = True
+    else:
+        aero_node[wn:wn + n_node_main] = abs(y[wn:wn + n_node_main]) >= y_coord_junction  
+    # aero_node[wn:wn + n_node_main] = y[wn:wn + n_node_main] >= y_coord_junction 
     # idx_junction = wn + min(np.where(aero_node[wn:wn + n_node_main] == 1)[0]) #find_index_of_closest_entry(y[wn:wn + n_node_main], 0.66)
     
     n_node_junctions = int(3 + 2*(n_elem_junction_main-1))
@@ -720,19 +974,28 @@ def generate_aero_file():
     temp_sweep = np.linspace(0.0, 0*np.pi/180, n_node_main)
 
     node_counter = 0
+    global_node_counter = wn
+    jigtwist_elem = np.zeros((n_elem_main))
     for i_elem in range(we, we + n_elem_main):
         for i_local_node in range(n_node_elem):
             if not i_local_node == 0:
                 node_counter += 1
-            if i_local_node == 1:
-                chord[i_elem, i_local_node] = temp_chord[node_counter + 1]
+            inode = node_counter
+            if i_local_node == 1:                
+                inode += 1
+                # chord[i_elem, i_local_node] = temp_chord[node_counter + 1]
             elif i_local_node == 2:
-                chord[i_elem, i_local_node] = temp_chord[node_counter - 1]
-            else:
-                chord[i_elem, i_local_node] = temp_chord[node_counter] 
-            elastic_axis[i_elem, i_local_node] = ea_main
+                inode -= 1
+                # chord[i_elem, i_local_node] = temp_chord[node_counter - 1]
+            chord[i_elem, i_local_node] = temp_chord[inode]
+            # elastic_axis[i_elem, i_local_node] *= chord[i_elem, i_local_node]
             sweep[i_elem, i_local_node] = temp_sweep[node_counter]
-
+            # get jig twist            
+            twist[i_elem, i_local_node] = -get_jigtwist_from_y_coord(y[wn + inode])
+            if i_local_node == 1:
+                jigtwist_elem[i_elem] = np.rad2deg(twist[i_elem, i_local_node])
+        global_node_counter += 2
+    np.savetxt("jig_twst_elem.csv", jigtwist_elem)
 
     # For control surfaces setup
     idx_ailerons_start_y_coordinate = find_index_of_closest_entry(y[wn:wn + n_node_main1], y_coord_ailerons[0])
@@ -767,7 +1030,13 @@ def generate_aero_file():
     # airfoil_distribution[wn:wn + n_node_main - 1] = 0
     surface_distribution[we:we + n_elem_main] = i_surf
     surface_m[i_surf] = m
-    aero_node[wn:wn + n_node_main] = y[wn:wn + n_node_main] <= -y_coord_junction  #-0.11
+
+    if lifting_only:
+        aero_node[wn:wn + n_node_main] = True
+    else:
+        aero_node[wn:wn + n_node_main] = y[wn:wn + n_node_main] <= -y_coord_junction
+
+    # aero_node[wn:wn + n_node_main] = y[wn:wn + n_node_main] <= -y_coord_junction  #-0.11
     junction_boundary_condition_aero[0, i_surf] = 0 # BC at fuselage junction
     # aero_node[wn:wn + n_node_main - 1] = True
     # chord[wn:wn + num_node_main - 1] = np.linspace(main_chord, main_tip_chord, num_node_main)[1:]
@@ -779,16 +1048,29 @@ def generate_aero_file():
         for i_local_node in range(n_node_elem): 
             if not i_local_node == 0:
                 node_counter += 1
+
+            inode = node_counter
             if i_local_node == 1:
-                chord[i_elem, i_local_node] = temp_chord[node_counter + 1]
-                sweep[i_elem, i_local_node] = temp_sweep[node_counter + 1]
+                inode += 1
+                # chord[i_elem, i_local_node] = temp_chord[node_counter + 1]
             elif i_local_node == 2:
-                chord[i_elem, i_local_node] = temp_chord[node_counter - 1]
-                sweep[i_elem, i_local_node] = temp_sweep[node_counter - 1]
-            else:
-                chord[i_elem, i_local_node] = temp_chord[node_counter] 
-                sweep[i_elem, i_local_node] = temp_sweep[node_counter]
-            elastic_axis[i_elem, i_local_node] = ea_main
+                inode -= 1
+                # chord[i_elem, i_local_node] = temp_chord[node_counter - 1]
+            chord[i_elem, i_local_node] = temp_chord[inode]
+            # elastic_axis[i_elem, i_local_node] *= chord[i_elem, i_local_node]
+            sweep[i_elem, i_local_node] = temp_sweep[inode]
+            # get jig twist            
+            twist[i_elem, i_local_node] = twist[i_elem - we, i_local_node] 
+            # if i_local_node == 1:
+            #     chord[i_elem, i_local_node] = temp_chord[node_counter + 1]
+            #     sweep[i_elem, i_local_node] = temp_sweep[node_counter + 1]
+            # elif i_local_node == 2:
+            #     chord[i_elem, i_local_node] = temp_chord[node_counter - 1]
+            #     sweep[i_elem, i_local_node] = temp_sweep[node_counter - 1]
+            # else:
+            #     chord[i_elem, i_local_node] = temp_chord[node_counter] 
+            #     sweep[i_elem, i_local_node] = temp_sweep[node_counter]            
+            # elastic_axis[i_elem, i_local_node] *= chord[i_elem, i_local_node]
 
 
     # For control surfaces setup
@@ -814,158 +1096,167 @@ def generate_aero_file():
         
         
 
-
+    np.savetxt("jig_twist.csv", twist)
     we += n_elem_main
     wn += n_node_main - 1
+    if not wing_only:
+        we += n_elem_fuselage
+        wn += n_node_fuselage - 1 - 1
+        #
+        #
+        # # # right tail (surface 3, beam 4)
+        i_surf = 2
+        airfoil_distribution[we:we + n_elem_tail, :] = 2
+        # airfoil_distribution[wn:wn + n_node_tail] = 0
+        surface_distribution[we:we + n_elem_tail] = i_surf
+        surface_m[i_surf] = m
+        # XXX not very elegant
+        # aero_node[wn:] = True
 
-    we += n_elem_fuselage
-    wn += n_node_fuselage - 1 - 1
-    #
-    #
-    # # # right tail (surface 3, beam 4)
-    i_surf = 2
-    airfoil_distribution[we:we + n_elem_tail, :] = 2
-    # airfoil_distribution[wn:wn + n_node_tail] = 0
-    surface_distribution[we:we + n_elem_tail] = i_surf
-    surface_m[i_surf] = m
-    # XXX not very elegant
-    # aero_node[wn:] = True
-
-    aero_node[wn:wn + n_node_tail] = y[wn:wn + n_node_tail] >= 0.04
-    # idx_junction_tail = wn + min(np.where(aero_node[wn:wn + n_node_main] == 1)[0]) #find_index_of_closest_entry(y[wn:wn + n_node_main], 0.66)
-    junction_boundary_condition_aero[0, i_surf] = 3 # BC at fuselage junction
+        if lifting_only:
+            aero_node[wn:wn + n_node_tail] = True
+        else:
+            aero_node[wn:wn + n_node_tail] = y[wn:wn + n_node_tail] >= 0.04
+        
+        # idx_junction_tail = wn + min(np.where(aero_node[wn:wn + n_node_main] == 1)[0]) #find_index_of_closest_entry(y[wn:wn + n_node_main], 0.66)
+        junction_boundary_condition_aero[0, i_surf] = 3 # BC at fuselage junction
+        
+        temp_chord = tail_chord_root - abs(y[wn:wn + n_node_tail]*np.tan(tail_sweep_LE)) + abs(y[wn:wn + n_node_tail]*np.tan(tail_sweep_TE))
+        # chord[wn:wn + num_node_tail] = tail_chord
+        # elastic_axis[wn:wn + num_node_main] = tail_ea
+        node_counter = 0
+        for i_elem in range(we, we + n_elem_tail):
+            for i_local_node in range(n_node_elem):
+                twist[i_elem, i_local_node] = -0
+        for i_elem in range(we, we + n_elem_tail):
+            for i_local_node in range(n_node_elem):
+                if not i_local_node == 0:
+                    node_counter += 1
+                    if i_local_node == 1:
+                        chord[i_elem, i_local_node] = temp_chord[node_counter + 1]
+                    elif i_local_node == 2:
+                        chord[i_elem, i_local_node] = temp_chord[node_counter - 1]
+                else:
+                    chord[i_elem, i_local_node] = temp_chord[node_counter]            
+                elastic_axis[i_elem, i_local_node] = ea_main
+                # sweep[i_elem, i_local_node] = temp_sweep[node_counter]    # For control surfaces setup
+        idx_elevator_start_y_coordinate = find_index_of_closest_entry(y[wn:wn + n_node_tail], y_coord_elevators[0])
+        idx_elevator_end_y_coordinate = find_index_of_closest_entry(y[wn:wn + n_node_tail], y_coord_elevators[-1])
+        
+        node_counter = wn - 2
+        cs_counter = -1
+        
+        cs_surface = False
+        for i_elem in range(we, we + n_elem_tail):
+            for i_local_node in range(3):
+                if not i_local_node == 0:
+                    node_counter += 1
+                if abs(y[node_counter]) == y_coord_elevators[0] and i_local_node == 0:
+                    cs_surface = True 
+                if cs_surface:
+                    if abs(y[node_counter]) in y_coord_elevators:
+                        if i_local_node == 0:
+                            if cs_counter == -1:
+                                cs_counter = 4
+                            else:
+                                cs_counter += 1
+                    control_surface[i_elem, i_local_node] = cs_counter
+                if abs(y[node_counter]) >= y_coord_elevators[-1]:
+                    cs_surface = False
+            # print("y node = ", y[node_counter])
+            # print("i_elem = ", i_elem, " and control_surface ID = ",  control_surface[i_elem, i_local_node])
     
-    temp_chord = tail_chord_root - abs(y[wn:wn + n_node_tail]*np.tan(tail_sweep_LE)) + abs(y[wn:wn + n_node_tail]*np.tan(tail_sweep_TE))
-    # chord[wn:wn + num_node_tail] = tail_chord
-    # elastic_axis[wn:wn + num_node_main] = tail_ea
-    node_counter = 0
-    for i_elem in range(we, we + n_elem_tail):
-        for i_local_node in range(n_node_elem):
-            twist[i_elem, i_local_node] = -0
-    for i_elem in range(we, we + n_elem_tail):
-        for i_local_node in range(n_node_elem):
-            if not i_local_node == 0:
-                node_counter += 1
+
+        we += n_elem_tail
+        wn += n_node_tail
+        #
+
+
+
+        # # left tail (surface 4, beam 5)
+        i_surf = 3
+        airfoil_distribution[we:we + n_elem_tail, :] = 2
+        # airfoil_distribution[wn:wn + n_node_tail - 1] = 0
+        surface_distribution[we:we + n_elem_tail] = i_surf
+        surface_m[i_surf] = m
+        # aero_node[wn:wn + n_node_tail - 1] = True
+        aero_node[wn:wn + n_node_tail] = y[wn:wn + n_node_tail] <= -0.04
+
+        if lifting_only:
+            aero_node[wn:wn + n_node_tail] = True
+        else:
+            aero_node[wn:wn + n_node_tail] = y[wn:wn + n_node_tail] <= -0.04
+        # idx_junction_tail = wn + min(np.where(aero_node[wn:wn + n_node_tail] == 1)[0]) #find_index_of_closest_entry(y[wn:wn + n_node_main], 0.66)
+        junction_boundary_condition_aero[0, i_surf] = 2 # BC at fuselage junction
+        # chord[wn:wn + num_node_tail] = tail_chord
+        # elastic_axis[wn:wn + num_node_main] = tail_ea
+        # twist[we:we + num_elem_tail] = -tail_twist
+        node_counter = 0
+        for i_elem in range(we, we + n_elem_tail):
+            for i_local_node in range(n_node_elem):
+                twist[i_elem, i_local_node] = -0
+        for i_elem in range(we, we + n_elem_tail):
+            for i_local_node in range(n_node_elem):
+                if not i_local_node == 0:
+                    node_counter += 1
                 if i_local_node == 1:
                     chord[i_elem, i_local_node] = temp_chord[node_counter + 1]
                 elif i_local_node == 2:
                     chord[i_elem, i_local_node] = temp_chord[node_counter - 1]
-            else:
-                chord[i_elem, i_local_node] = temp_chord[node_counter]            
-            elastic_axis[i_elem, i_local_node] = ea_main
-            # sweep[i_elem, i_local_node] = temp_sweep[node_counter]    # For control surfaces setup
-    idx_elevator_start_y_coordinate = find_index_of_closest_entry(y[wn:wn + n_node_tail], y_coord_elevators[0])
-    idx_elevator_end_y_coordinate = find_index_of_closest_entry(y[wn:wn + n_node_tail], y_coord_elevators[-1])
-    
-    node_counter = wn - 2
-    cs_counter = -1
-    
-    cs_surface = False
-    for i_elem in range(we, we + n_elem_tail):
-        for i_local_node in range(3):
-            if not i_local_node == 0:
-                node_counter += 1
-            if abs(y[node_counter]) == y_coord_elevators[0] and i_local_node == 0:
-                cs_surface = True 
-            if cs_surface:
-                if abs(y[node_counter]) in y_coord_elevators:
-                    if i_local_node == 0:
-                        if cs_counter == -1:
-                            cs_counter = 4
-                        else:
-                            cs_counter += 1
-                control_surface[i_elem, i_local_node] = cs_counter
-            if abs(y[node_counter]) >= y_coord_elevators[-1]:
-                cs_surface = False
-        # print("y node = ", y[node_counter])
-        # print("i_elem = ", i_elem, " and control_surface ID = ",  control_surface[i_elem, i_local_node])
-   
+                else:
+                    chord[i_elem, i_local_node] = temp_chord[node_counter]            
+                elastic_axis[i_elem, i_local_node] = ea_main
+                # sweep[i_elem, i_local_node] = temp_sweep[node_counter]
 
-    we += n_elem_tail
-    wn += n_node_tail
-    #
+        # For control surfaces setup
+        node_counter = wn - 2
+        cs_counter = -1
+        
+        cs_surface = False
+        for i_elem in range(we, we + n_elem_tail):
+            for i_local_node in range(3):
+                if not i_local_node == 0:
+                    node_counter += 1
+                if abs(y[node_counter]) == y_coord_elevators[0] and i_local_node == 0:
+                    cs_surface = True 
+                if cs_surface:
+                    if abs(y[node_counter]) in y_coord_elevators:
+                        if i_local_node == 0:
+                            if cs_counter == -1:
+                                cs_counter = 4
+                            else:
+                                cs_counter += 1
+                    control_surface[i_elem, i_local_node] = cs_counter
+                if abs(y[node_counter]) >= y_coord_elevators[-1]:
 
-
-
-    # # left tail (surface 4, beam 5)
-    i_surf = 3
-    airfoil_distribution[we:we + n_elem_tail, :] = 2
-    # airfoil_distribution[wn:wn + n_node_tail - 1] = 0
-    surface_distribution[we:we + n_elem_tail] = i_surf
-    surface_m[i_surf] = m
-    # aero_node[wn:wn + n_node_tail - 1] = True
-    aero_node[wn:wn + n_node_tail] = y[wn:wn + n_node_tail] <= -0.04
-    # idx_junction_tail = wn + min(np.where(aero_node[wn:wn + n_node_tail] == 1)[0]) #find_index_of_closest_entry(y[wn:wn + n_node_main], 0.66)
-    junction_boundary_condition_aero[0, i_surf] = 2 # BC at fuselage junction
-    # chord[wn:wn + num_node_tail] = tail_chord
-    # elastic_axis[wn:wn + num_node_main] = tail_ea
-    # twist[we:we + num_elem_tail] = -tail_twist
-    node_counter = 0
-    for i_elem in range(we, we + n_elem_tail):
-        for i_local_node in range(n_node_elem):
-            twist[i_elem, i_local_node] = -0
-    for i_elem in range(we, we + n_elem_tail):
-        for i_local_node in range(n_node_elem):
-            if not i_local_node == 0:
-                node_counter += 1
-            if i_local_node == 1:
-                chord[i_elem, i_local_node] = temp_chord[node_counter + 1]
-            elif i_local_node == 2:
-                chord[i_elem, i_local_node] = temp_chord[node_counter - 1]
-            else:
-                chord[i_elem, i_local_node] = temp_chord[node_counter]            
-            elastic_axis[i_elem, i_local_node] = ea_main
-            # sweep[i_elem, i_local_node] = temp_sweep[node_counter]
-
-    # For control surfaces setup
-    node_counter = wn - 2
-    cs_counter = -1
-    
-    cs_surface = False
-    for i_elem in range(we, we + n_elem_tail):
-        for i_local_node in range(3):
-            if not i_local_node == 0:
-                node_counter += 1
-            if abs(y[node_counter]) == y_coord_elevators[0] and i_local_node == 0:
-                cs_surface = True 
-            if cs_surface:
-                if abs(y[node_counter]) in y_coord_elevators:
-                    if i_local_node == 0:
-                        if cs_counter == -1:
-                            cs_counter = 4
-                        else:
-                            cs_counter += 1
-                control_surface[i_elem, i_local_node] = cs_counter
-            if abs(y[node_counter]) >= y_coord_elevators[-1]:
-
-                cs_surface = False
-    we -= n_elem_tail
-    wn -= n_node_tail
-    i_elem_counter = 0
-    for i_elem in range(we, we + n_elem_tail):
-        for i_local_node in range(3):
-            control_surface[i_elem, i_local_node] = control_surface[i_elem + n_elem_tail, i_local_node]
-    # node_counter = 0
-    # for i_elem in range(we, we + n_elem_tail):
-    #     for i_local_node in [0,2,1]: #range(n_node_elem):
-    #         if not i_local_node == 0:
-    #             node_counter += 1
-    #         if node_counter == idx_elevator_start_y_coordinate:
-    #             cs_surface = True            
-    #         if cs_surface:
-    #             control_surface[i_elem, i_local_node] = cs_surface_id # elevator right
-    #             print("elevator at i_elem = " + str(i_elem) + " and i_local_node = " + str(i_local_node))
-    #         if node_counter == idx_elevator_end_y_coordinate:
-    #             cs_surface = False
-    #             if i_elem  + 1== we + n_elem_tail:
-    #                 control_surface[i_elem, :] = cs_surface_id 
-
-    control_surface[control_surface == 5] = 4
+                    cs_surface = False
+        we -= n_elem_tail
+        wn -= n_node_tail
+        i_elem_counter = 0
+        for i_elem in range(we, we + n_elem_tail):
+            for i_local_node in range(3):
+                control_surface[i_elem, i_local_node] = control_surface[i_elem + n_elem_tail, i_local_node]
+        # node_counter = 0
+        # for i_elem in range(we, we + n_elem_tail):
+        #     for i_local_node in [0,2,1]: #range(n_node_elem):
+        #         if not i_local_node == 0:
+        #             node_counter += 1
+        #         if node_counter == idx_elevator_start_y_coordinate:
+        #             cs_surface = True            
+        #         if cs_surface:
+        #             control_surface[i_elem, i_local_node] = cs_surface_id # elevator right
+        #             print("elevator at i_elem = " + str(i_elem) + " and i_local_node = " + str(i_local_node))
+        #         if node_counter == idx_elevator_end_y_coordinate:
+        #             cs_surface = False
+        #             if i_elem  + 1== we + n_elem_tail:
+        #                 control_surface[i_elem, :] = cs_surface_id 
+        np.savetxt("elastic_axis.csv", elastic_axis)
+    # control_surface[control_surface == 5] = 4
     with h5.File(route + '/' + case_name + '.aero.h5', 'a') as h5file:
         airfoils_group = h5file.create_group('airfoils')
         # add one airfoil
         naca_airfoil_main = airfoils_group.create_dataset('0', data=np.column_stack(
-            generate_naca_camber(P=0, M=0)))
+            load_airfoil_data_from_file("../01_case_files/FlexOp_Data_Jurij/camber_line_airfoils.csv")))
         naca_airfoil_tail = airfoils_group.create_dataset('1', data=np.column_stack(
             generate_naca_camber(P=0, M=0)))
         naca_airfoil_fin = airfoils_group.create_dataset('2', data=np.column_stack(
@@ -1050,6 +1341,11 @@ def interpolate_fuselage_geometry(x_coord_beam, df_fuselage, coord, upper_surfac
     # plt.show()
 
     return y
+
+def estimate_aircraft_mass_from_mass_matrix():
+    local_node_counter = 0
+    for ielem in range(elem_mass.size()):
+        length = np.norm([x[local_node_counter]- y_])
 
 
 
@@ -1154,36 +1450,36 @@ def generate_solver_file():
     #                               'aligned_grid': 'on',
     #                               'mstar': int(20/tstep_factor),
     #                               'freestream_dir': ['1', '0', '0']}
-                                  
-    # settings['AerogridLoader'] = {'unsteady': 'on',
-    #                             'aligned_grid': 'on',
-    #                             'mstar': wake_length*m, #int(20/tstep_factor),
-    #                             'wake_shape_generator': 'StraightWake',
-    #                             'wake_shape_generator_input': {
-    #                                 'u_inf': u_inf,
-    #                                 'u_inf_direction': [1., 0., 0.],
-    #                                 'dt': dt,
-    #                             },
-    #                           }
-
-    settings['AerogridLoader'] = {'unsteady': 'on',
-                                'aligned_grid': 'on',
-                                'mstar': int((1*chord_root)/(chord_tip/m)) + 9,
-                                'wake_shape_generator': 'StraightWake',
+    if wake_discretisation:
+        settings['AerogridLoader'] = {'unsteady': 'on',
+                                    'aligned_grid': 'on',
+                                    'mstar': int((1*chord_root)/(chord_tip/m)) + 10,
+                                    'wake_shape_generator': 'StraightWake',
+                                        'wake_shape_generator_input': {
+                                            'u_inf': u_inf,
+                                            'u_inf_direction': [1., 0., 0.],
+                                            'dt': dt,
+                                            'dx1': chord_tip/m,  # size of first wake panel. Here equal to bound panel
+                                            'ndx1': int((1*chord_root)/(chord_tip/m)), 
+                                            'r': 1.5,
+                                            'dxmax':5*chord_tip}
+                                    
+                                        }
+    else:
+        settings['AerogridLoader'] = {'unsteady': 'on',
+                                    'aligned_grid': 'on',
+                                    'mstar': wake_length*m, #int(20/tstep_factor),
+                                    'wake_shape_generator': 'StraightWake',
                                     'wake_shape_generator_input': {
                                         'u_inf': u_inf,
                                         'u_inf_direction': [1., 0., 0.],
                                         'dt': dt,
-                                        'dx1': chord_root/m,  # size of first wake panel. Here equal to bound panel
-                                        'ndx1': int((1*chord_root)/(chord_tip/m)), 
-                                        'r': 1.5,
-                                        'dxmax':5*chord_tip}
-                                    }
-    print("Number of panels with size ``dx1`` = ", int((1*chord_root)/(chord_tip/m)) + 9)
-
-
-    settings['AeroForcesCalculator'] = {'print_info': True,
-                                    'coefficients': True,
+                                    },
+                                }
+        if horseshoe:
+            settings['AerogridLoader']['mstar'] = 1
+    print(settings["AerogridLoader"])
+    settings['AeroForcesCalculator'] = {'coefficients': False,
                                     'S_ref': 2.54,
                                     'q_ref': 0.5*1.225*u_inf**2}
     settings['NonliftingbodygridLoader'] = {'unsteady': 'on',
@@ -1199,7 +1495,7 @@ def generate_solver_file():
                                    'gravity': 9.81}
 
     settings['StaticUvlm'] = {'print_info': 'on',
-                              'horseshoe': 'off',
+                              'horseshoe': horseshoe,
                               'num_cores': num_cores,
                               'n_rollup': 0,
                               'rollup_dt': dt,
@@ -1209,7 +1505,7 @@ def generate_solver_file():
                               'velocity_field_input': {'u_inf': u_inf,
                                                        'u_inf_direction': [1., 0, 0]},
                               'rho': rho,
-                              'nonlifting_body_interactions': True}
+                              'nonlifting_body_interactions': nonlifting_body_interactions}
 
     settings['StaticCoupled'] = {'print_info': 'off',
                                  'structural_solver': 'NonLinearStatic',
@@ -1227,9 +1523,9 @@ def generate_solver_file():
                               'initial_deflection': cs_deflection,
                               'initial_thrust': thrust,
                               'tail_cs_index': 4,
-                              'fz_tolerance': 0.01,
-                              'fy_tolerance': 0.01,
-                              'm_tolerance': 0.01,
+                            #   'fz_tolerance': 0.01,
+                            #   'fy_tolerance': 0.01,
+                            #   'm_tolerance': 0.01,
                               'initial_angle_eps': 0.05,
                               'initial_thrust_eps': 2.,
                               'save_info': True}
@@ -1259,11 +1555,15 @@ def generate_solver_file():
     relative_motion = 'off'
     if not free_flight:
         relative_motion = 'on'
+    if wake_discretisation:
+        cfl1 = False
+    else:
+        cfl1 = True
     settings['StepUvlm'] = {'num_cores': num_cores,
                             'n_rollup': 0,
                             'convection_scheme': 2,
                             'gamma_dot_filtering': 0,
-                            'cfl1': False,
+                            'cfl1': cfl1,
                             'velocity_field_generator': 'GustVelocityField',
                             'velocity_field_input': {'u_inf': int(not free_flight)*u_inf,
                                                      'u_inf_direction': [1., 0, 0],
@@ -1275,12 +1575,15 @@ def generate_solver_file():
                                                      'relative_motion': relative_motion},
                             'rho': rho,
                             'n_time_steps': n_tstep,
-                            'dt': dt}
+                            'dt': dt,
+                            'nonlifting_body_interactions': nonlifting_body_interactions,}
 
     if free_flight:
         solver = 'NonLinearDynamicCoupledStep'
     else:
         solver = 'NonLinearDynamicPrescribedStep'
+    settings['SaveData'] = {'save_aero': True,
+                            'save_struct': True}
     settings['DynamicCoupled'] = {'structural_solver': solver,
                                   'structural_solver_settings': settings[solver],
                                   'aero_solver': 'StepUvlm',
@@ -1290,45 +1593,50 @@ def generate_solver_file():
                                   'relaxation_factor': relaxation_factor,
                                   'minimum_steps': 1,
                                   'relaxation_steps': 150,
-                                  'final_relaxation_factor': 0.5,
+                                  'final_relaxation_factor': 0.05,
                                   'n_time_steps': n_tstep,
                                   'dt': dt,
+                                  'nonlifting_body_interactions': nonlifting_body_interactions,
                                   'include_unsteady_force_contribution': 'on',
-                                  'postprocessors': ['BeamLoads', 'BeamPlot', 'AerogridPlot'],
+                                #   'postprocessors': ['SaveData'],
+                                #   'postprocessors_settings': {'SaveData': settings['SaveData'],
+                                  'postprocessors': ['BeamLoads', 'BeamPlot', 'AerogridPlot', 'SaveData'],
                                   'postprocessors_settings': {'BeamLoads': {'csv_output': 'off'},
                                                               'BeamPlot': {'include_rbm': 'on',
                                                                            'include_applied_forces': 'on'},
                                                               'AerogridPlot': {
                                                                   'include_rbm': 'on',
                                                                   'include_applied_forces': 'on',
-                                                                  'minus_m_star': 0},
-                                                              }}
+                                                                  'minus_m_star': 0,
+                                                                  'plot_nonlifting_surfaces': nonlifting_body_interactions,},
+                                                              'SaveData': settings['SaveData']
+                                                              },
+                                                              }
 
-    settings['LiftDistribution'] = {'folder': route + '/output/',
-                                    'normalise': True}
+    settings['LiftDistribution'] = {'q_ref': 0.5*1.225*u_inf**2,
+                                    'coefficients': True}
     settings['BeamLoads'] = {'csv_output': True}
 
     settings['BeamPlot'] = {'include_rbm': 'on',
-                            'include_applied_forces': 'on',
-                            'include_forward_motion': 'on'}
+                            'include_applied_forces': 'on'}
 
     settings['AerogridPlot'] = {'include_rbm': 'on',
                                 'include_forward_motion': 'off',
                                 'include_applied_forces': 'on',
                                 'minus_m_star': 0,
                                 'u_inf': u_inf,
-                                'dt': dt}
+                                'dt': dt,
+                                'plot_nonlifting_surfaces': nonlifting_body_interactions,}
 
     settings['Modal'] = {'print_info': True,
                      'use_undamped_modes': True,
-                     'NumLambda': 30,
+                     'NumLambda': 20,
                      'rigid_body_modes': True,
-                     'write_modes_vtk': 'on',
-                     'print_matrices': 'on',
-                     'write_data': 'on',
-                     'continuous_eigenvalues': 'off',
-                     'dt': dt,
-                     'plot_eigenvalues': False}
+                     'write_modes_vtk': True,
+                     'print_matrices': True,
+                     'write_dat': True,
+                     'continuous_eigenvalues': False,
+                     'dt': dt}
 
     settings['LinearAssembler'] = {'linear_system': 'LinearAeroelastic',
                                     'linear_system_settings': {
@@ -1363,6 +1671,7 @@ def generate_solver_file():
                                         'num_evals': 40,}
 
 
+
     import configobj
     config = configobj.ConfigObj()
     config.filename = file_name
@@ -1372,11 +1681,10 @@ def generate_solver_file():
 
 
 
-clean_test_files()
+clean_test_files(route, case_name, ['.fem.h5', '.aero.h5', '.nonlifting_body.h5', '.sharpy'])
 generate_fem()
 generate_aero_file()
-
-generate_nonlifting_body_file()
+if not wing_only:
+    generate_nonlifting_body_file() 
 generate_solver_file()
-generate_dyn_file()
-
+print(case_name)
