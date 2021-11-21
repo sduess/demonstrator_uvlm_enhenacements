@@ -864,7 +864,7 @@ def generate_fem():
 def get_jigtwist_from_y_coord(y_coord):
     y_coord = abs(y_coord)
     # TODO: Find function for the interpolation (there must be one out there)
-    df_jig_twist = pd.read_csv('../01_case_files/FlexOp_Data_Jurij/jig_twist.csv',
+    df_jig_twist = pd.read_csv('../01_case_files/flexOp_data/jig_twist.csv',
                                sep=';')
     idx_closest_value = find_index_of_closest_entry(df_jig_twist.iloc[:,0], y_coord)
     if material == "reference":
@@ -1256,7 +1256,7 @@ def generate_aero_file():
         airfoils_group = h5file.create_group('airfoils')
         # add one airfoil
         naca_airfoil_main = airfoils_group.create_dataset('0', data=np.column_stack(
-            load_airfoil_data_from_file("../01_case_files/FlexOp_Data_Jurij/camber_line_airfoils.csv")))
+            load_airfoil_data_from_file("../01_case_files/flexOp_data/camber_line_airfoils.csv")))
         naca_airfoil_tail = airfoils_group.create_dataset('1', data=np.column_stack(
             generate_naca_camber(P=0, M=0)))
         naca_airfoil_fin = airfoils_group.create_dataset('2', data=np.column_stack(
@@ -1505,7 +1505,7 @@ def generate_solver_file():
                               'velocity_field_input': {'u_inf': u_inf,
                                                        'u_inf_direction': [1., 0, 0]},
                               'rho': rho,
-                              'nonlifting_body_interactions': nonlifting_body_interactions}
+                              'nonlifting_body_interaction': nonlifting_body_interactions}
 
     settings['StaticCoupled'] = {'print_info': 'off',
                                  'structural_solver': 'NonLinearStatic',
@@ -1576,7 +1576,7 @@ def generate_solver_file():
                             'rho': rho,
                             'n_time_steps': n_tstep,
                             'dt': dt,
-                            'nonlifting_body_interactions': nonlifting_body_interactions,}
+                            'nonlifting_body_interaction': nonlifting_body_interactions,}
 
     if free_flight:
         solver = 'NonLinearDynamicCoupledStep'
@@ -1596,7 +1596,7 @@ def generate_solver_file():
                                   'final_relaxation_factor': 0.05,
                                   'n_time_steps': n_tstep,
                                   'dt': dt,
-                                  'nonlifting_body_interactions': nonlifting_body_interactions,
+                                  'nonlifting_body_interaction': nonlifting_body_interactions,
                                   'include_unsteady_force_contribution': 'on',
                                 #   'postprocessors': ['SaveData'],
                                 #   'postprocessors_settings': {'SaveData': settings['SaveData'],
