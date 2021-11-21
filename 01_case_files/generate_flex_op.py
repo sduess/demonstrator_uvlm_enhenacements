@@ -1497,10 +1497,6 @@ def generate_solver_file():
     settings['StaticUvlm'] = {'print_info': 'on',
                               'horseshoe': horseshoe,
                               'num_cores': num_cores,
-                              'n_rollup': 0,
-                              'rollup_dt': dt,
-                              'rollup_aic_refresh': 1,
-                              'rollup_tolerance': 1e-4,
                               'velocity_field_generator': 'SteadyVelocityField',
                               'velocity_field_input': {'u_inf': u_inf,
                                                        'u_inf_direction': [1., 0, 0]},
@@ -1538,8 +1534,7 @@ def generate_solver_file():
                                                'gravity_on': gravity,
                                                'gravity': 9.81,
                                                'num_steps': n_tstep,
-                                               'dt': dt,
-                                               'initial_velocity': u_inf}
+                                               'dt': dt}
 
     settings['NonLinearDynamicPrescribedStep'] = {'print_info': 'off',
                                            'max_iterations': 950,
@@ -1549,8 +1544,7 @@ def generate_solver_file():
                                            'gravity_on': gravity,
                                            'gravity': 9.81,
                                            'num_steps': n_tstep,
-                                           'dt': dt,
-                                           'initial_velocity': u_inf*int(free_flight)}
+                                           'dt': dt}
 
     relative_motion = 'off'
     if not free_flight:
@@ -1560,7 +1554,6 @@ def generate_solver_file():
     else:
         cfl1 = True
     settings['StepUvlm'] = {'num_cores': num_cores,
-                            'n_rollup': 0,
                             'convection_scheme': 2,
                             'gamma_dot_filtering': 0,
                             'cfl1': cfl1,
@@ -1568,11 +1561,10 @@ def generate_solver_file():
                             'velocity_field_input': {'u_inf': int(not free_flight)*u_inf,
                                                      'u_inf_direction': [1., 0, 0],
                                                      'gust_shape': '1-cos',
-                                                     'gust_length': gust_length,
-                                                     'gust_intensity': gust_intensity*u_inf,
-                                                     'offset': gust_offset,
-                                                     'span': span_main,
-                                                     'relative_motion': relative_motion},
+                                                     'gust_parameters': {'gust_length': gust_length,
+                                                                         'gust_intensity': gust_intensity*u_inf
+                                                                        }
+                                                    },
                             'rho': rho,
                             'n_time_steps': n_tstep,
                             'dt': dt,
