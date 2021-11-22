@@ -138,10 +138,10 @@ dmypy.json
 cython_debug/
 
 # SHARPy case files
-.h5
-.vtu
-.sharpy
-.log
+*.h5
+*.vtu
+*.sharpy
+*.log
 cases/
 
 # SHARPy output files
