@@ -1,3 +1,6 @@
 [submodule "sharpy"]
 	path = sharpy
 	url = https://github.com/ImperialCollegeLondon/sharpy
+[submodule "flex_op"]
+	path = flex_op
+	url = https://github.com/sduess/flex_op
