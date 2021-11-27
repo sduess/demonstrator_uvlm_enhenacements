@@ -4,3 +4,6 @@
 [submodule "src/xfoil"]
 	path = src/xfoil
 	url = https://codeberg.org/xfoil-python/xfoil-python.git
+[submodule "src/flex_op"]
+	path = src/flex_op
+	url = http://github.com/sduess/flex_op
