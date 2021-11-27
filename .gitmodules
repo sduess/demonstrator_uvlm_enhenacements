@@ -1,9 +1,6 @@
 [submodule "sharpy"]
 	path = sharpy
 	url = https://github.com/ImperialCollegeLondon/sharpy
-[submodule "src/xfoil-python"]
-	path = src/xfoil-python
-	url = https://github.com/DARcorporation/xfoil-python
 [submodule "src/xfoil"]
 	path = src/xfoil
 	url = https://codeberg.org/xfoil-python/xfoil-python.git
