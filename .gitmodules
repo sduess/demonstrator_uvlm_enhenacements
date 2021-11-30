@@ -3,7 +3,7 @@
 	url = https://github.com/ImperialCollegeLondon/sharpy
 [submodule "src/xfoil"]
 	path = src/xfoil
-	url = https://codeberg.org/xfoil-python/xfoil-python.git
+	url = https://github.com/ngoiz/xfoil-python
 [submodule "src/flex_op"]
 	path = src/flex_op
 	url = http://github.com/sduess/flex_op
