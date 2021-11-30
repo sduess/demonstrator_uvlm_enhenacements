@@ -4,6 +4,8 @@ import aircraft
 import sharpy.utils.algebra as algebra
 import sharpy.sharpy_main as smain
 
+airfoil_polars_directory = os.path.abspath('../src/flex_op/src/airfoil_polars/')
+
 
 def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_directory, **kwargs):
     """
@@ -52,8 +54,8 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
             else:
                 raise FileExistsError('Case files exist - exiting simulation')
 
-    acf = aircraft.FLEXOP(case_name, case_route, output_directory,
-                          datafiles_directory='../01_case_files/flexOp_data/')
+    acf = aircraft.FLEXOP(case_name, case_route, output_directory)
+
     acf.clean()
 
     acf.init_structure(**kwargs)
@@ -195,6 +197,11 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
         'S_ref': acf.reference_area,
         'q_ref': 0.5 * rho * u_inf ** 2}
 
+    settings['WriteVariablesTime'] = {'structure_variables': ['pos', 'psi'],
+                                      'structure_nodes': list(range(acf.structure.n_node_main + 1)),
+                                      'cleanup_old_solution': 'on',
+                                      'delimiter': ','}
+
     settings['SaveParametricCase'] = {'parameters': {'alpha': alpha * 180 / np.pi,
                                                      'u_inf': u_inf}}
 
@@ -258,7 +265,7 @@ def generate_polar_arrays(airfoils):
     # Return a aoa (rad), cl, cd, cm for each airfoil
     out_data = [None] * len(airfoils)
     for airfoil_index, airfoil_filename in airfoils.items():
-        out_data[airfoil_index] = np.loadtxt(airfoil_filename, skiprows=1)
+        out_data[airfoil_index] = np.loadtxt(airfoil_filename, skiprows=12)[:, :4]
         if any(out_data[airfoil_index][:, 0] > 1):
             # provided polar is in degrees so changing it to radians
             out_data[airfoil_index][:, 0] *= np.pi / 180
@@ -290,15 +297,15 @@ def main():
     alpha_deg = -0.2
     rho = 1.1336
     run_single_case = False
-    alpha_start = 0
+    alpha_start = -5
     alpha_end = 10
     alpha_step = 1
 
-    case_base_name = 'flexop_init'
+    case_base_name = 'flexop_'
     cases_route = './cases/'
     output_route = './output/'
 
-    use_polars = False
+    use_polars = True
     use_fuselage = False
 
     # numerics
@@ -307,17 +314,20 @@ def main():
     sigma = 1
     n_elem_multiplier = 1
     n_load_step = 5
+    case_base_name += f'w{wake_length:02g}n{n_elem_multiplier}'
 
     airfoil_polars = {
-        0: './data_xfoil/xfoil_seq_re500000_naca0018.txt',
-        1: './data_xfoil/xfoil_seq_re500000_naca0018.txt',
-        2: './data_xfoil/xfoil_seq_re500000_naca0018.txt',
+        0: airfoil_polars_directory + '/xfoil_seq_re1300000_root.txt',
+        1: airfoil_polars_directory + '/xfoil_seq_re1300000_naca0012.txt',  # unused
+        2: airfoil_polars_directory + '/xfoil_seq_re1300000_naca0012.txt',
                       }
 
     flow = ['BeamLoader',
             'AerogridLoader',
             'StaticCoupled',
+            # 'StaticUvlm',
             'AeroForcesCalculator',
+            'WriteVariablesTime',
             'SaveParametricCase'
             ]
 
