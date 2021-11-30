@@ -11,19 +11,29 @@ import pandas as pd
 flex_op_data_path = '../01_case_files/flexOp_data/'
 
 
-def read_excel(filepath):
+def alpha_str(alpha_deg):
+    if alpha_deg < 0:
+        alpha_str = f'M{np.abs(alpha_deg) * 100:03g}'
+    else:
+        alpha_str = f'{alpha_deg * 100:04g}'
+    return alpha_str
+
+def read_excel(filepath, *airfoil_names):
     """
 
     Args:
         filepath (str): Path to Reference.xls or Tailored.xls file
-
+        sheet_numbers (list(int)): Sheet numbers
     Returns:
         dict: Containing root: x, y and tip:x, y data
     """
 
     out = {}
-    outname = ['root', 'tip']
-    for isheet, sn in enumerate([6, 7]):
+    airfoil_sheets = {'root': 6,
+                      'tip': 7}
+
+    for iairfoil, airfoil_name in enumerate(airfoil_names):
+        sn = airfoil_sheets[airfoil_name]
         df = pd.read_excel(filepath, sheet_name=sn, header=2, usecols=[1, 2, 3, 4])
 
         x_upper, y_upper = interpolate_airfoil_surface(df['XU'], df['YU'], n_points=200)
@@ -34,7 +44,7 @@ def read_excel(filepath):
 
         # x = np.concatenate((np.array(df['XL'][::-1]), np.array(df['XU'])))
         # y = np.concatenate((np.array(df['YL'][::-1]), np.array(df['YU'])))
-        out[outname[isheet]] = (x, y)
+        out[airfoil_name] = (x, y)
     return out
 
 
@@ -56,7 +66,7 @@ class XFoilInterface:
         self.xfoil = XFoil()
         self.configuration = configuration
 
-        self.airfoil_data = dict() # dict: containing coords as {airfoil_name: (x, y)}
+        self.airfoil_data = dict()  # dict: containing coords as {airfoil_name: (x, y)}
 
         self._reynolds = None
 
@@ -73,7 +83,19 @@ class XFoilInterface:
         self._reynolds = reynolds_number
         self.xfoil.Re = reynolds_number
 
-    def load_airfoils_from_excel(self):
+    @property
+    def max_iter(self):
+        """Maximum number of iterations"""
+        return self.xfoil.max_iter
+
+    @max_iter.setter
+    def max_iter(self, num_iter):
+        self.xfoil.max_iter = num_iter
+
+    def load_airfoils_from_excel(self, *airfoil_names):
+
+        if len(airfoil_names) == 0:
+            airfoil_names = ['root', 'tip']
 
         if self.configuration.lower() == 'reference':
             filepath = flex_op_data_path + '/Reference.xlsx'
@@ -82,7 +104,7 @@ class XFoilInterface:
         else:
             raise NameError('Unknown configuration {:s}'.format(self.configuration))
 
-        for airfoil_name, airfoil_coords in read_excel(filepath).items():
+        for airfoil_name, airfoil_coords in read_excel(filepath, *airfoil_names).items():
             self.add_airfoil(airfoil_name, airfoil_coords)
 
     def add_airfoil(self, name, xy_tuple_or_str):
@@ -113,63 +135,92 @@ class XFoilInterface:
         Returns:
 
         """
+        n_node = kwargs.get('n_node', 160)
+
+        if kwargs.get('xtr', None) is not None:
+            self.xfoil.xtr = kwargs['xtr']
 
         for airfoil_name, airfoil_coords in self.airfoil_data.items():
-            self.reload_xfoil_airfoil(airfoil_coords, kwargs.get('n_node', 160))
-
+            self.reload_xfoil_airfoil(airfoil_coords, n_node)
             cl, cd, cm, cp = self.xfoil.a(alpha)
             print('Airfoil', airfoil_name)
             print('alpha, cl, cd, cm, cpmin')
             print(alpha, cl, cd, cm, cp)
             if self.save:
-                filename = self.output_directory + f'/xfoil_re{self.reynolds:g}_{airfoil_name}_alpha{alpha:04g}.txt'
+                filename = self.output_directory + f'/xfoil_re{self.__re_str}_{airfoil_name}_alpha{alpha_str(alpha)}.txt'
                 np.savetxt(filename,
-                           np.column_stack((cl, cd, cm, cp)),
-                           header='cl, cd, cm, cpmin')
+                           np.column_stack((alpha, cl, cd, cm, cp, *self.xfoil.xtr)),
+                           header=f'{self.file_header(airfoil_name, n_node)}' +
+                                  'alpha_deg, cl, cd, cm, cpmin, top_xtr, bot_xtr')
                 print(f'Saved airfoil {airfoil_name} data to:\n\t{filename}')
 
     def run_sequence_angle_of_attack(self, alpha_init, alpha_end, alpha_step, **kwargs):
+        n_node = kwargs.get('n_node', 160)
         out_data = {}
+        if kwargs.get('xtr', None) is not None:
+            self.xfoil.xtr = kwargs['xtr']
         for airfoil_name, airfoil_coords in self.airfoil_data.items():
-            self.reload_xfoil_airfoil(airfoil_coords, kwargs.get('n_node', 160))
-
+            self.reload_xfoil_airfoil(airfoil_coords, n_node)
             alpha_deg, cl, cd, cm, cp = self.xfoil.aseq(alpha_init, alpha_end, alpha_step)
-            alpha_rad = alpha_deg * np.pi / 180
-            out_data[airfoil_name] = np.column_stack((alpha_rad, cl, cd, cm, cp))
+            out_data[airfoil_name] = np.column_stack((alpha_deg, cl, cd, cm, cp, *self.xfoil.xtr))
 
             if self.save or kwargs.get('save', False):
-                filename = self.output_directory + f'/xfoil_seq_re{self.reynolds:g}_{airfoil_name}.txt'
+                filename = self.output_directory + f'/xfoil_seq_re{self.__re_str}_{airfoil_name}.txt'
                 np.savetxt(filename,
                            out_data[airfoil_name],
-                           header='alpha_rad, cl, cd, cm, cpmin')
+                           header=f'{self.file_header(airfoil_name, n_node)}' +
+                                  'alpha_deg, cl, cd, cm, cpmin, top_xtr, bot_xtr')
                 print(f'Saved airfoil {airfoil_name} data to:\n\t{filename}')
 
         return out_data
 
     def run_polar(self, alpha_min, alpha_max, alpha_increment, **kwargs):
+        n_node = kwargs.get('n_node', 160)
         n = int(np.ceil((alpha_max - alpha_min) / alpha_increment) + 1)
         alpha_dom = np.linspace(alpha_min, alpha_max, n)
 
+        if kwargs.get('xtr', None) is not None:
+            self.xfoil.xtr = kwargs['xtr']
+
         out_data = {}
         for airfoil_name, airfoil_coords in self.airfoil_data.items():
-            self.reload_xfoil_airfoil(airfoil_coords, kwargs.get('n_node', 160))
+            self.reload_xfoil_airfoil(airfoil_coords, n_node)
 
-            polar_data = np.zeros((n, 4))
+            polar_data = np.zeros((n, 7))
             for i_alpha in range(n):
-                cl, cd, cm, _ = self.xfoil.a(alpha_dom[i_alpha])
-                polar_data[i_alpha] = np.array([alpha_dom[i_alpha], cl, cd, cm])
+                cl, cd, cm, cpmin = self.xfoil.a(alpha_dom[i_alpha])
+                polar_data[i_alpha] = np.array([alpha_dom[i_alpha], cl, cd, cm, cpmin, *self.xfoil.xtr])
                 self.xfoil.reset_bls()
 
             out_data[airfoil_name] = polar_data
 
             if self.save or kwargs.get('save', False):
-                filename = self.output_directory + f'/xfoil_seq_re{self.reynolds:g}_{airfoil_name}.txt'
+                filename = self.output_directory + f'/xfoil_seq_re{self.__re_str}_{airfoil_name}.txt'
                 np.savetxt(filename,
                            out_data[airfoil_name],
-                           header='alpha_deg, cl, cd, cm')
+                           header=f'{self.file_header(airfoil_name, n_node)}' +
+                                  'alpha_deg, cl, cd, cm, cpmin, top_xtr, bot_xtr')
                 print(f'Saved airfoil {airfoil_name} data to:\n\t{filename}')
 
         return out_data
+
+    @property
+    def __re_str(self):
+        return f'{int(self.reynolds):d}'
+
+    def file_header(self, airfoil_name, n_node):
+        str_out = '------------------------------\n' \
+                  'XFoil Interface for Python\n' \
+                  '------------------------------\n\n' \
+                  f'Airfoil,{airfoil_name}\n' \
+                  f'Reynolds number,{self.reynolds}\n' \
+                  f'Ncrit,{self.xfoil.n_crit}\n' \
+                  f'Mach,{self.xfoil.M}\n' \
+                  f'n_node,{n_node}\n' \
+                  f'max_iter, {self.xfoil.max_iter}\n' \
+                  '------------------------------\n'
+
+        return str_out
 
 
 def plot_polar(alpha_rad, cl, cd, cm, **kwargs):
