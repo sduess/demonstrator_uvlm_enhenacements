@@ -1,0 +1,4 @@
+FLEXOP Model Git info:	The branch being run is main
+	Version: unreleased
+	Commit hash: 41e26e5
+	Full hash: 41e26e5bf0e2291c14c54ccdf4b1337db482c562

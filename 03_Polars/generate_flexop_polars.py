@@ -7,6 +7,12 @@ import sharpy.sharpy_main as smain
 airfoil_polars_directory = os.path.abspath('../src/flex_op/src/airfoil_polars/')
 
 
+def create_git_info_file(filename):
+    msg = aircraft.print_git_status()
+    with open(filename, 'w') as fid:
+        fid.write(msg)
+
+
 def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_directory, **kwargs):
     """
 
@@ -207,7 +213,10 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
 
     acf.create_settings(settings)
 
+    create_git_info_file(acf.case_route + '/' + 'flexop_model_info_' + acf.case_name + '.txt')
+
     smain.main(['', acf.case_route + '/' + acf.case_name + '.sharpy'])
+    create_git_info_file(acf.output_route + '/' + acf.case_name + '/' + 'flexop_model_info_' + acf.case_name + '.txt')
 
 
 def generate_case_name(case_name_base, u_inf, alpha_rad, use_polars, use_fuselage):
@@ -296,7 +305,7 @@ def main():
     u_inf = 45
     alpha_deg = -0.2
     rho = 1.1336
-    run_single_case = False
+    run_single_case = True
     alpha_start = -5
     alpha_end = 10
     alpha_step = 1
@@ -328,6 +337,8 @@ def main():
             # 'StaticUvlm',
             'AeroForcesCalculator',
             'WriteVariablesTime',
+            'BeamPlot',
+            'AerogridPlot',
             'SaveParametricCase'
             ]
 
