@@ -42,8 +42,8 @@ def process_wingtip_deflections(path_to_case):
         deflection = np.array(out_str.split(',')[1:-1], dtype=float)
 
     # change deflection to g
-    cga = algebra.quat2rotation(algebra.euler2quat(np.array([0, alpha * np.pi / 180, 0])))
-    deflection = cga.dot(deflection)
+    # cga = algebra.quat2rotation(algebra.euler2quat(np.array([0, alpha * np.pi / 180, 0])))
+    # deflection = cga.dot(deflection)
 
     return alpha, deflection
 
@@ -83,7 +83,7 @@ def save_results(results, fname):
 
 
 def save_deflection_results(results, fname):
-    np.savetxt(fname + '.dat', results, header='AoA deg, xG, yG, zG')
+    np.savetxt(fname + '.dat', results, header='AoA deg, xA, yA, zA')
     print(f'Saved Results to {os.path.abspath(fname)}.dat')
 
 
@@ -124,7 +124,7 @@ if __name__ == '__main__':
     results_output_directory = './polar_output_data/'
     sharpy_output_directory = './output/'
 
-    case_base_name = 'flexop_w20n1'
+    case_base_name = 'flexop_w10n1'
     u_inf = 45
     use_polars = False
     use_fuselage = False
