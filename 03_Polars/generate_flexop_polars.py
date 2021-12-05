@@ -213,8 +213,6 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
 
     acf.create_settings(settings)
 
-    create_git_info_file(acf.case_route + '/' + 'flexop_model_info_' + acf.case_name + '.txt')
-
     smain.main(['', acf.case_route + '/' + acf.case_name + '.sharpy'])
     create_git_info_file(acf.output_route + '/' + acf.case_name + '/' + 'flexop_model_info_' + acf.case_name + '.txt')
 
@@ -305,7 +303,7 @@ def main():
     u_inf = 45
     alpha_deg = -0.2
     rho = 1.1336
-    run_single_case = True
+    run_single_case = False
     alpha_start = -5
     alpha_end = 10
     alpha_step = 1
@@ -314,7 +312,7 @@ def main():
     cases_route = './cases/'
     output_route = './output/'
 
-    use_polars = True
+    use_polars = False
     use_fuselage = False
 
     # numerics
@@ -337,7 +335,6 @@ def main():
             # 'StaticUvlm',
             'AeroForcesCalculator',
             'WriteVariablesTime',
-            'BeamPlot',
             'AerogridPlot',
             'SaveParametricCase'
             ]
