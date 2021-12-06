@@ -64,11 +64,17 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
 
     acf.clean()
 
-    acf.init_structure(**kwargs)
-    acf.init_aero(m, **kwargs)  # polar array goes here as polars=data kwarg
-
     if use_fuselage:
-        acf.init_fuselage(m, **kwargs)
+        acf.init_structure(sigma=kwargs.get('sigma', 1),
+                           n_elem_multiplier=kwargs.get('n_elem_multiplier', 1),
+                           n_elem_multiplier_fuselage=2,
+                           lifting_only=False,
+                           wing_only=False)
+        acf.init_aero(m, **kwargs)  # polar array goes here as polars=data kwarg
+        acf.init_fuselage(32, **kwargs)
+    else:
+        acf.init_structure(**kwargs)
+        acf.init_aero(m, **kwargs)  # polar array goes here as polars=data kwarg
 
     acf.set_flight_controls(thrust, elevator, rudder)
 
@@ -121,8 +127,8 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
     #                               }
     # print("Number of panels with size ``dx1`` = ", int((1 * chord_root) / (chord_tip / m)) + 9)
 
-    settings['NonliftingbodygridLoader'] = {'unsteady': 'on',
-                                            'aligned_grid': 'on',
+    settings['NonliftingbodygridLoader'] = {#'unsteady': 'on',
+                                            #'aligned_grid': 'on',
                                             'freestream_dir': ['1', '0', '0']}
 
     settings['NonLinearStatic'] = {'print_info': 'off',
@@ -150,7 +156,9 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
                                  'max_iter': 100,
                                  'n_load_steps': n_load_step,
                                  'tolerance': fsi_tolerance,
-                                 'relaxation_factor': structural_relaxation_factor}
+                                 'relaxation_factor': structural_relaxation_factor,
+                                 'nonlifting_body_interaction': use_fuselage,
+                                 }
 
     if use_polars:
         settings['StaticCoupled']['correct_forces_method'] = 'PolarCorrection'
@@ -181,7 +189,7 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
     settings['AerogridPlot'] = {'include_rbm': 'on',
                                 'include_forward_motion': 'off',
                                 'include_applied_forces': 'on',
-                                'plot_nonlifting_surfaces': 'off',
+                                'plot_nonlifting_surfaces': use_fuselage,
                                 'minus_m_star': 0,
                                 'u_inf': u_inf,
                                 'dt': dt}
@@ -303,20 +311,20 @@ def main():
     u_inf = 45
     alpha_deg = -0.2
     rho = 1.1336
-    run_single_case = False
+    run_single_case = True
     alpha_start = -5
     alpha_end = 10
     alpha_step = 1
 
-    case_base_name = 'flexop_'
+    case_base_name = 'flexop_init_'
     cases_route = './cases/'
     output_route = './output/'
 
     use_polars = False
-    use_fuselage = False
+    use_fuselage = True
 
     # numerics
-    m = 8
+    m = 16
     wake_length = 10
     sigma = 1
     n_elem_multiplier = 1
@@ -331,8 +339,9 @@ def main():
 
     flow = ['BeamLoader',
             'AerogridLoader',
-            'StaticCoupled',
-            # 'StaticUvlm',
+            'NonliftingbodygridLoader',
+            # 'StaticCoupled',
+            'StaticUvlm',
             'AeroForcesCalculator',
             'WriteVariablesTime',
             'AerogridPlot',
