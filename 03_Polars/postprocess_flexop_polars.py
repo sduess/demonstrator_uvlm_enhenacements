@@ -124,9 +124,9 @@ if __name__ == '__main__':
     results_output_directory = './polar_output_data/'
     sharpy_output_directory = './output/'
 
-    case_base_name = 'flexop_w10n1'
+    case_base_name = 'flexop_init_w10n1_m8mf12'
     u_inf = 45
-    use_polars = False
-    use_fuselage = False
+    use_polars = True
+    use_fuselage = True
 
     run(results_output_directory, sharpy_output_directory, case_base_name, u_inf, use_polars, use_fuselage)

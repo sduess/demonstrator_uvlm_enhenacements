@@ -3,6 +3,7 @@ import os
 import aircraft
 import sharpy.utils.algebra as algebra
 import sharpy.sharpy_main as smain
+import sharpy.utils.exceptions as exceptions
 
 airfoil_polars_directory = os.path.abspath('../src/flex_op/src/airfoil_polars/')
 
@@ -71,7 +72,7 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
                            lifting_only=False,
                            wing_only=False)
         acf.init_aero(m, **kwargs)  # polar array goes here as polars=data kwarg
-        acf.init_fuselage(32, **kwargs)
+        acf.init_fuselage(m=kwargs.get('m_fuselage', 12), **kwargs)
     else:
         acf.init_structure(**kwargs)
         acf.init_aero(m, **kwargs)  # polar array goes here as polars=data kwarg
@@ -217,11 +218,16 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
                                       'delimiter': ','}
 
     settings['SaveParametricCase'] = {'parameters': {'alpha': alpha * 180 / np.pi,
-                                                     'u_inf': u_inf}}
+                                                     'u_inf': u_inf},
+                                      'save_case': 'off'}
 
     acf.create_settings(settings)
 
-    smain.main(['', acf.case_route + '/' + acf.case_name + '.sharpy'])
+    try:
+        data = smain.main(['', acf.case_route + '/' + acf.case_name + '.sharpy'])
+    except exceptions.NotConvergedSolver:
+        print('I did not converge!')
+        data = None
     create_git_info_file(acf.output_route + '/' + acf.case_name + '/' + 'flexop_model_info_' + acf.case_name + '.txt')
 
 
@@ -309,9 +315,9 @@ def create_polars_sequence(alpha_start, alpha_end, alpha_step,
 
 def main():
     u_inf = 45
-    alpha_deg = -0.2
+    alpha_deg = 4 # -0.2
     rho = 1.1336
-    run_single_case = True
+    run_single_case = False
     alpha_start = -5
     alpha_end = 10
     alpha_step = 1
@@ -324,12 +330,16 @@ def main():
     use_fuselage = True
 
     # numerics
-    m = 16
+    m = 8
+    m_fuselage = 12
     wake_length = 10
     sigma = 1
     n_elem_multiplier = 1
     n_load_step = 5
     case_base_name += f'w{wake_length:02g}n{n_elem_multiplier}'
+
+    if use_fuselage:
+        case_base_name += f'_m{m}mf{m_fuselage}'
 
     airfoil_polars = {
         0: airfoil_polars_directory + '/xfoil_seq_re1300000_root.txt',
@@ -340,11 +350,10 @@ def main():
     flow = ['BeamLoader',
             'AerogridLoader',
             'NonliftingbodygridLoader',
-            # 'StaticCoupled',
-            'StaticUvlm',
+            'StaticCoupled',
+            # 'StaticUvlm',
             'AeroForcesCalculator',
             'WriteVariablesTime',
-            'AerogridPlot',
             'SaveParametricCase'
             ]
 
@@ -357,6 +366,7 @@ def main():
                            'rho': rho,
                            'n_load_step': n_load_step,
                            'n_elem_multiplier': n_elem_multiplier,
+                           'm_fuselage': m_fuselage,
                            'polars': generate_polar_arrays(airfoil_polars)}
 
     if run_single_case:
