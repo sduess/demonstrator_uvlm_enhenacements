@@ -1,7 +1,7 @@
 import numpy as np
 import glob
 import configobj
-from generate_flexop_polars import generate_polars_case_name, aseq
+from generate_flexop_polars import generate_polars_case_name, aseq, DIRECTORY
 from aero import area_ref, chord_main_root
 import os
 import aircraft
@@ -121,10 +121,10 @@ def apply_coefficients(results, q, S, c_ref):
 
 
 if __name__ == '__main__':
-    results_output_directory = './polar_output_data/'
-    sharpy_output_directory = './output/'
+    results_output_directory = DIRECTORY + '/polar_output_data/'
+    sharpy_output_directory = DIRECTORY + '/output/'
 
-    case_base_name = 'flexop_init_w10n1_m8mf12'
+    case_base_name = 'flexop_init_polars_w20n4_m8mf24'
     u_inf = 45
     use_polars = True
     use_fuselage = True
