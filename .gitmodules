@@ -1,3 +1,9 @@
 [submodule "sharpy"]
-	path = sharpy
+	path = src/sharpy
 	url = https://github.com/ImperialCollegeLondon/sharpy
+[submodule "src/xfoil"]
+	path = src/xfoil
+	url = https://github.com/ngoiz/xfoil-python
+[submodule "src/flex_op"]
+	path = src/flex_op
+	url = http://github.com/sduess/flex_op
