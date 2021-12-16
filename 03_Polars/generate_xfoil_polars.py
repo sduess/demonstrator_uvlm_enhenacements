@@ -1,15 +1,10 @@
 import xfoil_interface
 import numpy as np
+import aircraft
+import os
 
+DIRECTORY = os.path.abspath(aircraft.FLEXOP_DIRECTORY)
 output_directory = '../src/flex_op/src/airfoil_polars/'
-
-# xfi = xfoil_interface.XFoilInterface('Reference', save=True, output_directory=output_directory)
-# # xfi.add_airfoil('naca0018', '0018')
-# xfi.load_airfoils_from_excel()
-# xfi.reynolds = 1.3e6
-# xfi.xfoil.xtr = (0.85, 0.02)
-# xfi.run_angle_of_attack(-5.75, n_node=250)
-# xfi.run_polar(-6, 6, 0.25, n_node=250, save=True)
 
 def run_tip_polar():
     xfi = xfoil_interface.XFoilInterface('Reference', save=True, output_directory=output_directory)
@@ -34,6 +29,7 @@ def run_tail_polar():
 
 
 if __name__ == '__main__':
-    # run_root_polar()
-    # run_tip_polar()
+    run_root_polar()
+    run_tip_polar()
     run_tail_polar()
+    

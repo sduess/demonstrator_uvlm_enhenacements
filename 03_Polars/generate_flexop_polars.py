@@ -3,8 +3,10 @@ import os
 import aircraft
 import sharpy.utils.algebra as algebra
 import sharpy.sharpy_main as smain
+import sharpy.utils.exceptions as exceptions
 
-airfoil_polars_directory = os.path.abspath('../src/flex_op/src/airfoil_polars/')
+airfoil_polars_directory = os.path.abspath(aircraft.FLEXOP_DIRECTORY)
+DIRECTORY = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + '/')
 
 
 def create_git_info_file(filename):
@@ -45,6 +47,7 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
     fsi_tolerance = kwargs.get('fsi_tolerance', 1e-6)
     structural_relaxation_factor = kwargs.get('structural_relaxation_factor', 0.6)
     overwrite = kwargs.get('overwrite', False)  # overwrite over existing case files (if same name)
+    variable_wake = kwargs.get('variable_wake', False)
     # end of kwargs
 
     case_route = case_route + '/' + case_name
@@ -71,10 +74,14 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
                            lifting_only=False,
                            wing_only=False)
         acf.init_aero(m, **kwargs)  # polar array goes here as polars=data kwarg
-        acf.init_fuselage(32, **kwargs)
+        acf.init_fuselage(m=kwargs.get('m_fuselage', 12), **kwargs)
     else:
         acf.init_structure(**kwargs)
         acf.init_aero(m, **kwargs)  # polar array goes here as polars=data kwarg
+        try:
+            flow.remove('NonliftingbodygridLoader')
+        except ValueError:
+            pass
 
     acf.set_flight_controls(thrust, elevator, rudder)
 
@@ -101,32 +108,33 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
                                                                           alpha,
                                                                           yaw]))}
 
-    settings['AerogridLoader'] = {'unsteady': 'on',
-                                'aligned_grid': 'on',
-                                'mstar': int(wake_length * m),
-                                'wake_shape_generator': 'StraightWake',
-                                'wake_shape_generator_input': {
-                                    'u_inf': u_inf,
-                                    'u_inf_direction': [1., 0., 0.],
-                                    'dt': dt,
-                                },
-                              }
-
-    # settings['AerogridLoader'] = {'unsteady': 'on',
-    #                               'aligned_grid': 'on',
-    #                               'mstar': int((1 * chord_root) / (chord_tip / m)) + 9,
-    #                               'wake_shape_generator': 'StraightWake',
-    #                               'wake_shape_generator_input': {
-    #                                   'u_inf': u_inf,
-    #                                   'u_inf_direction': [1., 0., 0.],
-    #                                   'dt': dt,
-    #                                   'dx1': chord_root / m,  # size of first wake panel. Here equal to bound panel
-    #                                   'ndx1': int((1 * chord_root) / (chord_tip / m)),
-    #                                   'r': 1.5,
-    #                                   'dxmax': 5 * chord_tip}
-    #                               }
-    # print("Number of panels with size ``dx1`` = ", int((1 * chord_root) / (chord_tip / m)) + 9)
-
+    if not variable_wake:
+        settings['AerogridLoader'] = {'unsteady': 'on',
+                                    'aligned_grid': 'on',
+                                    'mstar': int(wake_length * m),
+                                    'wake_shape_generator': 'StraightWake',
+                                    'wake_shape_generator_input': {
+                                        'u_inf': u_inf,
+                                        'u_inf_direction': [1., 0., 0.],
+                                        'dt': dt,
+                                    },
+                                  }
+    else:
+        settings['AerogridLoader'] = {'unsteady': 'on',
+                                      'aligned_grid': 'on',
+                                      'mstar': int(wake_length * chord_root / 5 / chord_tip * m),
+                                      'wake_shape_generator': 'StraightWake',
+                                      'wake_shape_generator_input': {
+                                          'u_inf': u_inf,
+                                          'u_inf_direction': [1., 0., 0.],
+                                          'dt': dt,
+                                          'dx1': chord_root / m,  # size of first wake panel. Here equal to bound panel
+                                          'ndx1': int((1 * chord_root) / (chord_tip / m)),
+                                          'r': 1.5,
+                                          'dxmax': 5 * chord_tip}
+                                      }
+        print("Number of panels with size ``dx1`` = ", int((1 * chord_root) / (chord_tip / m)) + 9)
+        print(settings['AerogridLoader'])
     settings['NonliftingbodygridLoader'] = {#'unsteady': 'on',
                                             #'aligned_grid': 'on',
                                             'freestream_dir': ['1', '0', '0']}
@@ -146,7 +154,8 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
                               'velocity_field_input': {'u_inf': u_inf,
                                                        'u_inf_direction': [1., 0, 0]},
                               'rho': rho,
-                              'nonlifting_body_interaction': use_fuselage}
+                              'nonlifting_body_interaction': use_fuselage,
+                              'cfl1': not variable_wake}
 
     settings['StaticCoupled'] = {'print_info': 'off',
                                  'structural_solver': 'NonLinearStatic',
@@ -217,11 +226,16 @@ def generate_aircraft(alpha, u_inf, m, flow, case_name, case_route, output_direc
                                       'delimiter': ','}
 
     settings['SaveParametricCase'] = {'parameters': {'alpha': alpha * 180 / np.pi,
-                                                     'u_inf': u_inf}}
+                                                     'u_inf': u_inf},
+                                      'save_case': 'off'}
 
     acf.create_settings(settings)
 
-    smain.main(['', acf.case_route + '/' + acf.case_name + '.sharpy'])
+    try:
+        data = smain.main(['', acf.case_route + '/' + acf.case_name + '.sharpy'])
+    except exceptions.NotConvergedSolver:
+        print('I did not converge!')
+        data = None
     create_git_info_file(acf.output_route + '/' + acf.case_name + '/' + 'flexop_model_info_' + acf.case_name + '.txt')
 
 
@@ -309,27 +323,36 @@ def create_polars_sequence(alpha_start, alpha_end, alpha_step,
 
 def main():
     u_inf = 45
-    alpha_deg = -0.2
+    alpha_deg = 4 # -0.2
     rho = 1.1336
     run_single_case = True
+    variable_wakes = True
     alpha_start = -5
     alpha_end = 10
     alpha_step = 1
 
     case_base_name = 'flexop_init_'
-    cases_route = './cases/'
-    output_route = './output/'
+    cases_route = DIRECTORY + '/cases/'
+    output_route = DIRECTORY + '/output/'
 
     use_polars = False
-    use_fuselage = True
+    use_fuselage = False
 
     # numerics
-    m = 16
-    wake_length = 10
+    m = 8
+    m_fuselage = 12
+    wake_length = 20
     sigma = 1
-    n_elem_multiplier = 1
+    n_elem_multiplier = 4
     n_load_step = 5
+
+    if variable_wakes:
+        case_base_name += 'wakes_'
+
     case_base_name += f'w{wake_length:02g}n{n_elem_multiplier}'
+
+    if use_fuselage:
+        case_base_name += f'_m{m}mf{m_fuselage}'
 
     airfoil_polars = {
         0: airfoil_polars_directory + '/xfoil_seq_re1300000_root.txt',
@@ -340,24 +363,25 @@ def main():
     flow = ['BeamLoader',
             'AerogridLoader',
             'NonliftingbodygridLoader',
-            # 'StaticCoupled',
-            'StaticUvlm',
+            'StaticCoupled',
             'AeroForcesCalculator',
             'WriteVariablesTime',
-            'AerogridPlot',
             'SaveParametricCase'
             ]
 
     simulation_settings = {
-                           'use_fuselage': use_fuselage,
-                           'use_polars': use_polars,
-                           'overwrite': True,
-                           'sigma': sigma,
-                           'wake_length': wake_length,
-                           'rho': rho,
-                           'n_load_step': n_load_step,
-                           'n_elem_multiplier': n_elem_multiplier,
-                           'polars': generate_polar_arrays(airfoil_polars)}
+        'use_fuselage': use_fuselage,
+        'use_polars': use_polars,
+        'overwrite': True,
+        'sigma': sigma,
+        'wake_length': wake_length,
+        'rho': rho,
+        'n_load_step': n_load_step,
+        'n_elem_multiplier': n_elem_multiplier,
+        'm_fuselage': m_fuselage,
+        'polars': generate_polar_arrays(airfoil_polars),
+        'variable_wake': variable_wakes
+    }
 
     if run_single_case:
         alpha_rad = alpha_deg * np.pi / 180

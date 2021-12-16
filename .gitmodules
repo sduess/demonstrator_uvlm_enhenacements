@@ -1,5 +1,5 @@
 [submodule "sharpy"]
-	path = sharpy
+	path = src/sharpy
 	url = https://github.com/ImperialCollegeLondon/sharpy
 [submodule "src/xfoil"]
 	path = src/xfoil
