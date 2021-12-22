@@ -1,4 +1,0 @@
-FLEXOP Model Git info:	The branch being run is HEAD
-	Version: unreleased
-	Commit hash: d925085
-	Full hash: d925085c2c2869cac7e6bb0fe579f88232e3cf2f
