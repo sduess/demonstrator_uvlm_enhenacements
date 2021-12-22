@@ -12,7 +12,7 @@ Scripts:
 ### SHARPy submodule
 Nonlinear Aeroelastic simulation environment. Find the full documentation [here](https://ic-sharpy.readthedocs.io).
 ### FLEX OP submodule
-Code to setup FLEXOP aircraft in 'SHARPy'.
+Code to setup FLEXOP aircraft in 'SHARPy'. This submodule is a private repository and remains private until the publication licence of the aircraft specific aeroelastic properties are discussed.
 
 ## 02) FLEXOP Polar Generation
 Generation of FLEXOP aircraft polars using airfoil polar data derived from XFOIL
